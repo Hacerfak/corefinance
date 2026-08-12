@@ -71,6 +71,7 @@ class _ImportXmlPageState extends State<ImportXmlPage> {
             'descricao':
                 'NF ${_dadosNota!['nome_outra_parte']} (Parc ${i + 1}/${parcelas.length})',
             'tipo': _dadosNota!['tipo'],
+            'documento': _dadosNota!['documento_outra_parte'],
             'valor': double.parse(parcelas[i]['valor'].toString()),
             'data_competencia': _dadosNota!['data_competencia']
                 .toString()
@@ -85,6 +86,7 @@ class _ImportXmlPageState extends State<ImportXmlPage> {
           'empresa_id': empresaAtual.id,
           'descricao': 'NF ${_dadosNota!['nome_outra_parte']}',
           'tipo': _dadosNota!['tipo'],
+          'documento': _dadosNota!['documento_outra_parte'],
           'valor': double.parse(_dadosNota!['valor_total']),
           'data_competencia': _dadosNota!['data_competencia']
               .toString()
@@ -168,7 +170,7 @@ class _ImportXmlPageState extends State<ImportXmlPage> {
                           _dadosNota!['documento_outra_parte'],
                         ),
                         _linhaResumo(
-                          'Valor Total (DRE):',
+                          'Valor Total:',
                           'R\$ ${_dadosNota!['valor_total']}',
                         ),
                         _linhaResumo(

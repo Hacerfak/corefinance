@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/transacao_service.dart';
 import '../app_state.dart';
+import '../services/categoria_service.dart';
 
 class LancamentoManualPage extends StatefulWidget {
   const LancamentoManualPage({super.key});
@@ -17,6 +18,10 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
   final TextEditingController _descricaoController = TextEditingController();
   final TextEditingController _valorController = TextEditingController();
 
+  final CategoriaService _categoriaService = CategoriaService();
+  List<Map<String, dynamic>> _categorias = [];
+  String? _categoriaSelecionada;
+
   String _tipoSelecionado = 'SAIDA';
   DateTime _dataCompetencia = DateTime.now();
   DateTime _dataVencimento = DateTime.now();
@@ -29,6 +34,21 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
   bool _isParcelado = false;
   int _qtdParcelas = 2;
   int _intervaloDias = 30;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarCategorias();
+    AppState().empresaAtiva.addListener(_carregarCategorias);
+  }
+
+  Future<void> _carregarCategorias() async {
+    final empresa = AppState().empresaAtiva.value;
+    if (empresa != null) {
+      final cats = await _categoriaService.buscarCategorias(empresa.id);
+      setState(() => _categorias = cats);
+    }
+  }
 
   Future<void> _selecionarData(
     BuildContext context,
@@ -79,6 +99,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               'descricao':
                   '${_descricaoController.text} (Parcela ${i + 1}/$_qtdParcelas)',
               'tipo': _tipoSelecionado,
+              'categoria_id': _categoriaSelecionada,
               'valor': valorParcela,
               'data_competencia': dataCompetenciaStr,
               'data_vencimento': vencimentoParcela.toIso8601String().split(
@@ -91,6 +112,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             'empresa_id': empresaAtual.id,
             'descricao': _descricaoController.text,
             'tipo': _tipoSelecionado,
+            'categoria_id': _categoriaSelecionada,
             'valor': valorTotal,
             'data_competencia': dataCompetenciaStr,
             'data_vencimento': _dataVencimento.toIso8601String().split('T')[0],
@@ -116,6 +138,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
         setState(() {
           _jaPago = false;
           _isParcelado = false;
+          _categoriaSelecionada = null;
         });
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -200,6 +223,29 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _categoriaSelecionada,
+                decoration: const InputDecoration(
+                  labelText: 'Categoria (Plano de Contas)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.category),
+                ),
+                items: _categorias
+                    .where(
+                      (c) => c['tipo'] == _tipoSelecionado,
+                    ) // Filtra para mostrar só entrada ou saída
+                    .map(
+                      (c) => DropdownMenuItem<String>(
+                        value: c['id'],
+                        child: Text(c['nome']),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => _categoriaSelecionada = v),
+                validator: (value) =>
+                    value == null ? 'Selecione uma categoria' : null,
               ),
               const SizedBox(height: 24),
               Row(

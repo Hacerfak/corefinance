@@ -77,7 +77,10 @@ class XmlParserService {
 
       return {
         'tipo': tipoTransacao,
-        'documento_outra_parte': cnpjOutraParte,
+        'documento_outra_parte': document
+            .findAllElements('nNF')
+            .first
+            .innerText,
         'nome_outra_parte': nomeOutraParte,
         'data_competencia': dataEmissao,
         'valor_total': valorTotal,

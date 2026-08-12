@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'import_xml_page.dart';
 import 'conciliacao_ofx_page.dart';
 import 'lancamento_manual_page.dart';
-import 'configuracoes_page.dart';
+import 'categorias_page.dart';
 import '../app_state.dart';
 import '../services/empresa_service.dart';
 import 'gerenciar_empresas_page.dart';
@@ -52,7 +52,7 @@ class _MainScreenState extends State<MainScreen> {
         style: TextStyle(fontSize: 24),
       ),
     ),
-    const ConfiguracoesPage(),
+    const CategoriasPage(),
   ];
 
   void _aoSelecionarMenu(int index) {
@@ -192,7 +192,7 @@ class _MainScreenState extends State<MainScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.settings),
-              title: const Text('Configurações'),
+              title: const Text('Categorias'),
               selected: _indiceAtual == 7,
               onTap: () => _aoSelecionarMenu(7),
             ),
