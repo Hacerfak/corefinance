@@ -152,26 +152,26 @@ class _ImportXmlPageState extends State<ImportXmlPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _LinhaResumo(
+                        _linhaResumo(
                           'Operação:',
                           _dadosNota!['tipo'],
                           cor: _dadosNota!['tipo'] == 'ENTRADA'
                               ? Colors.green
                               : Colors.red,
                         ),
-                        _LinhaResumo(
+                        _linhaResumo(
                           'Contraparte:',
                           _dadosNota!['nome_outra_parte'],
                         ),
-                        _LinhaResumo(
+                        _linhaResumo(
                           'Documento:',
                           _dadosNota!['documento_outra_parte'],
                         ),
-                        _LinhaResumo(
+                        _linhaResumo(
                           'Valor Total (DRE):',
                           'R\$ ${_dadosNota!['valor_total']}',
                         ),
-                        _LinhaResumo(
+                        _linhaResumo(
                           'Competência:',
                           _dadosNota!['data_competencia'].toString().substring(
                             0,
@@ -232,7 +232,7 @@ class _ImportXmlPageState extends State<ImportXmlPage> {
     );
   }
 
-  Widget _LinhaResumo(String label, String valor, {Color? cor}) {
+  Widget _linhaResumo(String label, String valor, {Color? cor}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
       child: Row(

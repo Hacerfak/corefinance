@@ -63,8 +63,9 @@ class _GerenciarEmpresasPageState extends State<GerenciarEmpresasPage> {
       body: ValueListenableBuilder<List<Empresa>>(
         valueListenable: AppState().empresasDisponiveis,
         builder: (context, empresas, child) {
-          if (empresas.isEmpty)
+          if (empresas.isEmpty) {
             return const Center(child: Text('Nenhuma empresa cadastrada.'));
+          }
           return ListView.builder(
             itemCount: empresas.length,
             itemBuilder: (context, index) {

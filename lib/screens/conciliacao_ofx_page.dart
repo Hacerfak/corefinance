@@ -101,7 +101,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                       );
                       return Card(
                         color: indexSugestao == 0
-                            ? Colors.green.withOpacity(0.1)
+                            ? Colors.green.withValues(alpha: 0.1)
                             : null,
                         child: ListTile(
                           title: Text(item['descricao']),
@@ -174,10 +174,10 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: isConciliado
-                            ? Colors.green.withOpacity(0.2)
+                            ? Colors.green.withValues(alpha: 0.2)
                             : (isCredito
-                                  ? Colors.blue.withOpacity(0.2)
-                                  : Colors.red.withOpacity(0.2)),
+                                  ? Colors.blue.withValues(alpha: 0.2)
+                                  : Colors.red.withValues(alpha: 0.2)),
                         child: Icon(
                           isConciliado
                               ? Icons.check

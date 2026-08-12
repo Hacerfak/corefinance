@@ -163,8 +163,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   ) {
                     if (states.contains(WidgetState.selected)) {
                       return _tipoSelecionado == 'ENTRADA'
-                          ? Colors.green.withOpacity(0.2)
-                          : Colors.red.withOpacity(0.2);
+                          ? Colors.green.withValues(alpha: 0.2)
+                          : Colors.red.withValues(alpha: 0.2);
                     }
                     return Colors.transparent;
                   }),
@@ -195,8 +195,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) return 'Informe o valor';
-                  if (double.tryParse(value.replaceAll(',', '.')) == null)
+                  if (double.tryParse(value.replaceAll(',', '.')) == null) {
                     return 'Valor inválido';
+                  }
                   return null;
                 },
               ),
