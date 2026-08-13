@@ -78,7 +78,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: tipoSelecionado,
+                  initialValue: tipoSelecionado,
                   decoration: const InputDecoration(labelText: 'Tipo'),
                   items: const [
                     DropdownMenuItem(
@@ -94,7 +94,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
-                  value: grupoSelecionado,
+                  initialValue: grupoSelecionado,
                   decoration: const InputDecoration(labelText: 'Grupo DRE'),
                   items: gruposDisponiveis.entries
                       .map(

@@ -315,10 +315,12 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   states,
                 ) {
                   if (states.contains(WidgetState.selected)) {
-                    if (_tipoSelecionado == 'ENTRADA')
+                    if (_tipoSelecionado == 'ENTRADA') {
                       return Colors.green.withValues(alpha: 0.2);
-                    if (_tipoSelecionado == 'SAIDA')
+                    }
+                    if (_tipoSelecionado == 'SAIDA') {
                       return Colors.red.withValues(alpha: 0.2);
+                    }
                     return Colors.blue.withValues(alpha: 0.2);
                   }
                   return Colors.transparent;
@@ -330,7 +332,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             // OCULTA CATEGORIA SE FOR SALDO
             if (_tipoSelecionado != 'SALDO') ...[
               DropdownButtonFormField<String>(
-                value: _categoriaSelecionada,
+                initialValue: _categoriaSelecionada,
                 decoration: const InputDecoration(
                   labelText: 'Categoria (Plano de Contas)',
                   border: OutlineInputBorder(),
@@ -397,8 +399,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) return 'Informe o valor';
-                if (double.tryParse(value.replaceAll(',', '.')) == null)
+                if (double.tryParse(value.replaceAll(',', '.')) == null) {
                   return 'Valor inválido';
+                }
                 return null;
               },
             ),

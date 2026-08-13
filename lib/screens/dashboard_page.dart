@@ -74,25 +74,28 @@ class _DashboardPageState extends State<DashboardPage> {
         if (tipo == 'SALDO') {
           if (isPago) _saldoAjustes += valor;
         } else if (tipo == 'ENTRADA') {
-          if (isPago)
+          if (isPago) {
             _receitasRealizadas += valor;
-          else
+          } else {
             _aReceber += valor;
+          }
         } else if (tipo == 'SAIDA') {
-          if (isPago)
+          if (isPago) {
             _despesasRealizadas += valor;
-          else
+          } else {
             _aPagar += valor;
+          }
         }
       }
 
       _ultimosLancamentos = dados.take(5).toList();
       setState(() {});
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

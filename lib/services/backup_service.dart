@@ -54,11 +54,9 @@ class BackupService {
 
       if (signIn.supportsAuthenticate()) {
         final account = await signIn.authenticate();
-        if (account != null) {
-          // Solicita autorização para o escopo do Google Drive
-          await account.authorizationClient.authorizeScopes(_scopes);
-          _usuarioAtual = account;
-        }
+        // Solicita autorização para o escopo do Google Drive
+        await account.authorizationClient.authorizeScopes(_scopes);
+        _usuarioAtual = account;
         return account;
       } else {
         throw Exception('A plataforma atual não suporta autenticação direta.');
@@ -77,23 +75,17 @@ class BackupService {
   /// Obtém o cliente autenticado da API do Drive gerenciando as permissões de escopo
   Future<drive.DriveApi?> _obterDriveApi() async {
     var user = _usuarioAtual;
-    if (user == null) {
-      user = await conectar();
-    }
+    user ??= await conectar();
     if (user == null) return null;
 
     // Obtém o token de autorização específico para o escopo do Drive
     var auth = await user.authorizationClient.authorizationForScopes(_scopes);
 
-    if (auth == null || auth.accessToken == null) {
+    if (auth == null) {
       auth = await user.authorizationClient.authorizeScopes(_scopes);
     }
 
     final accessToken = auth.accessToken;
-    if (accessToken == null)
-      throw Exception(
-        'Não foi possível obter o token de acesso do Google Drive.',
-      );
 
     final headers = {'Authorization': 'Bearer $accessToken'};
     final authenticateClient = GoogleAuthClient(headers);
@@ -108,8 +100,9 @@ class BackupService {
     final dbPath = await getDatabasesPath();
     final file = File(p.join(dbPath, 'corefinance.db'));
 
-    if (!await file.exists())
+    if (!await file.exists()) {
       throw Exception('Banco de dados local não encontrado.');
+    }
 
     // Consulta se já existe um arquivo salvo na pasta de dados do App
     final fileList = await driveApi.files.list(

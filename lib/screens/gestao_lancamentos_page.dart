@@ -46,10 +46,11 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
       );
       setState(() => _lancamentos = dados);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -200,10 +201,7 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
                           ),
                         ),
                         subtitle: Text(
-                          '${isSaldo ? 'Ajuste de Caixa' : (item['categoria_nome'] ?? 'Sem Categoria')}\nVenc: ${item['data_vencimento'].toString().substring(8, 10)}/${item['data_vencimento'].toString().substring(5, 7)}' +
-                              (item['documento'] != null
-                                  ? ' | Doc: ${item['documento']}'
-                                  : ''),
+                          '${isSaldo ? 'Ajuste de Caixa' : (item['categoria_nome'] ?? 'Sem Categoria')}\nVenc: ${item['data_vencimento'].toString().substring(8, 10)}/${item['data_vencimento'].toString().substring(5, 7)}${item['documento'] != null ? ' | Doc: ${item['documento']}' : ''}',
                         ),
                         isThreeLine: true,
                         trailing: Row(
@@ -433,10 +431,12 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                         backgroundColor: WidgetStateProperty.resolveWith<Color>(
                           (states) {
                             if (states.contains(WidgetState.selected)) {
-                              if (_tipoSelecionado == 'ENTRADA')
+                              if (_tipoSelecionado == 'ENTRADA') {
                                 return Colors.green.withValues(alpha: 0.2);
-                              if (_tipoSelecionado == 'SAIDA')
+                              }
+                              if (_tipoSelecionado == 'SAIDA') {
                                 return Colors.red.withValues(alpha: 0.2);
+                              }
                               return Colors.blue.withValues(alpha: 0.2);
                             }
                             return Colors.transparent;
@@ -448,7 +448,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
 
                     if (_tipoSelecionado != 'SALDO') ...[
                       DropdownButtonFormField<String>(
-                        value: _categoriaSelecionada,
+                        initialValue: _categoriaSelecionada,
                         decoration: const InputDecoration(
                           labelText: 'Categoria',
                           border: OutlineInputBorder(),

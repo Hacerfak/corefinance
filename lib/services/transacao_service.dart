@@ -179,10 +179,11 @@ class TransacaoService {
     for (var row in result) {
       final grupo = row['grupo_dre'] as String;
       final valor = (row['total'] as num).toDouble();
-      if (grupo == 'RECEITA_BRUTA')
+      if (grupo == 'RECEITA_BRUTA') {
         receitas += valor;
-      else
+      } else {
         despesas += valor;
+      }
     }
     return receitas - despesas;
   }

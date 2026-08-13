@@ -64,9 +64,9 @@ class _DrePageState extends State<DrePage> {
         final double valor = item['valor'];
         final String grupo = item['grupo_dre'] ?? '';
 
-        if (grupo == 'RECEITA_BRUTA')
+        if (grupo == 'RECEITA_BRUTA') {
           _receitaBruta += valor;
-        else if (grupo == 'DEDUCAO')
+        } else if (grupo == 'DEDUCAO')
           _deducoes += valor;
         else if (grupo == 'CUSTO_VARIAVEL')
           _custosVariaveis += valor;
@@ -75,10 +75,11 @@ class _DrePageState extends State<DrePage> {
       }
       setState(() {});
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -161,8 +162,9 @@ class _DrePageState extends State<DrePage> {
                   backgroundColor: WidgetStateProperty.resolveWith<Color>((
                     states,
                   ) {
-                    if (states.contains(WidgetState.selected))
+                    if (states.contains(WidgetState.selected)) {
                       return Theme.of(context).colorScheme.primaryContainer;
+                    }
                     return Colors.transparent;
                   }),
                 ),

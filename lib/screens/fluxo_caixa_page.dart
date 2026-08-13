@@ -73,32 +73,37 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
         final String vencimento = item['data_vencimento'];
 
         if (tipo == 'SALDO') {
-          if (isPago)
+          if (isPago) {
             _ajustesPago += valor;
-          else
+          } else {
             _ajustesPendente += valor;
+          }
         } else if (tipo == 'ENTRADA') {
-          if (isPago)
+          if (isPago) {
             _entradasPagas += valor;
-          else
+          } else {
             _entradasPendentes += valor;
+          }
         } else if (tipo == 'SAIDA') {
-          if (isPago)
+          if (isPago) {
             _saidasPagas += valor;
-          else
+          } else {
             _saidasPendentes += valor;
+          }
         }
 
-        if (!_lancamentosPorDia.containsKey(vencimento))
+        if (!_lancamentosPorDia.containsKey(vencimento)) {
           _lancamentosPorDia[vencimento] = [];
+        }
         _lancamentosPorDia[vencimento]!.add(item);
       }
       setState(() {});
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -408,7 +413,7 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
                                 ],
                               ),
                             );
-                          }).toList(),
+                          }),
                         ],
                       );
                     }),

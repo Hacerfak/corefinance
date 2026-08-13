@@ -70,27 +70,31 @@ class _BalancetePageState extends State<BalancetePage> {
 
         if (tipo == 'SALDO') {
           _totalAjustes += valor;
-          if (!_ajustesAgrupados.containsKey('Ajustes de Caixa'))
+          if (!_ajustesAgrupados.containsKey('Ajustes de Caixa')) {
             _ajustesAgrupados['Ajustes de Caixa'] = [];
+          }
           _ajustesAgrupados['Ajustes de Caixa']!.add(item);
         } else if (tipo == 'ENTRADA') {
           _totalEntradas += valor;
-          if (!_entradasAgrupadas.containsKey(catNome))
+          if (!_entradasAgrupadas.containsKey(catNome)) {
             _entradasAgrupadas[catNome] = [];
+          }
           _entradasAgrupadas[catNome]!.add(item);
         } else if (tipo == 'SAIDA') {
           _totalSaidas += valor;
-          if (!_saidasAgrupadas.containsKey(catNome))
+          if (!_saidasAgrupadas.containsKey(catNome)) {
             _saidasAgrupadas[catNome] = [];
+          }
           _saidasAgrupadas[catNome]!.add(item);
         }
       }
       setState(() {});
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -147,10 +151,7 @@ class _BalancetePageState extends State<BalancetePage> {
               return ListTile(
                 title: Text(item['descricao']),
                 subtitle: Text(
-                  'Data Pag: ${item['data_pagamento'].toString().substring(8, 10)}/${item['data_pagamento'].toString().substring(5, 7)}' +
-                      (item['documento'] != null
-                          ? ' | Doc: ${item['documento']}'
-                          : ''),
+                  'Data Pag: ${item['data_pagamento'].toString().substring(8, 10)}/${item['data_pagamento'].toString().substring(5, 7)}${item['documento'] != null ? ' | Doc: ${item['documento']}' : ''}',
                 ),
                 trailing: Text(
                   'R\$ ${item['valor'].toStringAsFixed(2)}',
