@@ -1,8 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
 import '../services/transacao_service.dart';
-import '../app_state.dart';
 import '../services/categoria_service.dart';
+import '../services/xml_parser_service.dart';
+import '../app_state.dart';
 
 class LancamentoManualPage extends StatefulWidget {
   const LancamentoManualPage({super.key});
@@ -14,39 +17,120 @@ class LancamentoManualPage extends StatefulWidget {
 class _LancamentoManualPageState extends State<LancamentoManualPage> {
   final _formKey = GlobalKey<FormState>();
   final TransacaoService _transacaoService = TransacaoService();
-
-  final TextEditingController _descricaoController = TextEditingController();
-  final TextEditingController _valorController = TextEditingController();
-
   final CategoriaService _categoriaService = CategoriaService();
+  final XmlParserService _xmlService = XmlParserService();
+
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaSelecionada;
-
+  final TextEditingController _documentoController = TextEditingController();
+  final TextEditingController _descricaoController = TextEditingController();
+  final TextEditingController _valorController = TextEditingController();
   String _tipoSelecionado = 'SAIDA';
   DateTime _dataCompetencia = DateTime.now();
   DateTime _dataVencimento = DateTime.now();
-
   bool _jaPago = false;
   DateTime _dataPagamento = DateTime.now();
   bool _isLoading = false;
 
-  // Variáveis de parcelamento
   bool _isParcelado = false;
   int _qtdParcelas = 2;
   int _intervaloDias = 30;
 
+  List<Map<String, dynamic>> _faturasXml = [];
+  String? _chaveNfe;
+
   @override
   void initState() {
     super.initState();
-    _carregarCategorias();
-    AppState().empresaAtiva.addListener(_carregarCategorias);
+    AppState().empresaAtiva.addListener(_aoMudarEmpresa);
+    _aoMudarEmpresa(); // Carrega as categorias imediatamente se houver empresa
   }
 
-  Future<void> _carregarCategorias() async {
+  @override
+  void dispose() {
+    AppState().empresaAtiva.removeListener(_aoMudarEmpresa);
+    super.dispose();
+  }
+
+  void _aoMudarEmpresa() async {
     final empresa = AppState().empresaAtiva.value;
     if (empresa != null) {
       final cats = await _categoriaService.buscarCategorias(empresa.id);
-      setState(() => _categorias = cats);
+      if (mounted) {
+        setState(() {
+          _categorias = cats;
+          _categoriaSelecionada =
+              null; // Reseta a categoria ao mudar de empresa
+        });
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _categorias = [];
+          _categoriaSelecionada = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _importarEPreencherViaXml() async {
+    final empresasCadastradas = AppState().empresasDisponiveis.value;
+    if (empresasCadastradas.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cadastre uma empresa primeiro.')),
+      );
+      return;
+    }
+
+    FilePickerResult? result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xml'],
+    );
+
+    if (result != null && result.files.single.path != null) {
+      setState(() => _isLoading = true);
+      try {
+        File arquivo = File(result.files.single.path!);
+        final dados = await _xmlService.processarNfe(
+          arquivo,
+          empresasCadastradas,
+        );
+
+        if (dados != null) {
+          // Muda a empresa ativa do AppState automaticamente para a encontrada no XML
+          final empresaEncontrada = empresasCadastradas.firstWhere(
+            (e) => e.id == dados['empresa_id'],
+          );
+          AppState().empresaAtiva.value = empresaEncontrada;
+
+          setState(() {
+            _tipoSelecionado = dados['tipo'];
+            _documentoController.text = dados['documento'];
+            _descricaoController.text = 'NF ${dados['nome_outra_parte']}';
+            _valorController.text = dados['valor_total'];
+            _dataCompetencia = DateTime.parse(dados['data_competencia']);
+            _faturasXml = List<Map<String, dynamic>>.from(dados['parcelas']);
+            _chaveNfe = dados['chave_nfe'];
+            _isParcelado = false;
+            _jaPago = false;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('XML carregado! Categoria e Salve.'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+      } finally {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -61,84 +145,105 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
     );
-    if (escolhida != null) {
-      setState(() => onSelecionado(escolhida));
-    }
+    if (escolhida != null) setState(() => onSelecionado(escolhida));
   }
 
   Future<void> _salvarLancamento() async {
+    final empresa = AppState().empresaAtiva.value;
+    if (empresa == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecione uma empresa no topo!'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     if (_formKey.currentState!.validate()) {
-      final empresaAtual = AppState().empresaAtiva.value;
-      if (empresaAtual == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Selecione uma empresa primeiro!')),
-        );
-        return;
-      }
-
       setState(() => _isLoading = true);
-
       try {
         final valorTotal = double.parse(
           _valorController.text.replaceAll(',', '.'),
         );
-        final dataCompetenciaStr = _dataCompetencia.toIso8601String().split(
-          'T',
-        )[0];
-
+        final dataCompStr = _dataCompetencia.toIso8601String().split('T')[0];
         List<Map<String, dynamic>> lote = [];
 
-        if (_isParcelado) {
+        if (_faturasXml.isNotEmpty) {
+          for (int i = 0; i < _faturasXml.length; i++) {
+            lote.add({
+              'empresa_id': empresa.id,
+              'categoria_id': _categoriaSelecionada,
+              'documento': _documentoController.text,
+              'descricao':
+                  '${_descricaoController.text} (Parc ${i + 1}/${_faturasXml.length})',
+              'tipo': _tipoSelecionado,
+              'valor': double.parse(_faturasXml[i]['valor'].toString()),
+              'data_competencia': dataCompStr,
+              'data_vencimento': _faturasXml[i]['vencimento'],
+              'chave_nfe': _chaveNfe,
+            });
+          }
+        } else if (_isParcelado) {
           final valorParcela = valorTotal / _qtdParcelas;
           for (int i = 0; i < _qtdParcelas; i++) {
             final vencimentoParcela = _dataVencimento.add(
               Duration(days: _intervaloDias * i),
             );
             lote.add({
-              'empresa_id': empresaAtual.id,
+              'empresa_id': empresa.id,
+              'categoria_id': _categoriaSelecionada,
+              'documento': _documentoController.text.isEmpty
+                  ? null
+                  : _documentoController.text,
               'descricao':
                   '${_descricaoController.text} (Parcela ${i + 1}/$_qtdParcelas)',
               'tipo': _tipoSelecionado,
-              'categoria_id': _categoriaSelecionada,
               'valor': valorParcela,
-              'data_competencia': dataCompetenciaStr,
+              'data_competencia': dataCompStr,
               'data_vencimento': vencimentoParcela.toIso8601String().split(
                 'T',
               )[0],
+              'chave_nfe': _chaveNfe,
             });
           }
         } else {
           lote.add({
-            'empresa_id': empresaAtual.id,
+            'empresa_id': empresa.id,
+            'categoria_id': _categoriaSelecionada,
+            'documento': _documentoController.text.isEmpty
+                ? null
+                : _documentoController.text,
             'descricao': _descricaoController.text,
             'tipo': _tipoSelecionado,
-            'categoria_id': _categoriaSelecionada,
             'valor': valorTotal,
-            'data_competencia': dataCompetenciaStr,
+            'data_competencia': dataCompStr,
             'data_vencimento': _dataVencimento.toIso8601String().split('T')[0],
             'data_pagamento': _jaPago
                 ? _dataPagamento.toIso8601String().split('T')[0]
                 : null,
+            'chave_nfe': _chaveNfe,
           });
         }
 
         await _transacaoService.criarLancamentosEmLote(lote);
-
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Lançamento salvo com sucesso!'),
+            content: Text('Salvo com sucesso!'),
             backgroundColor: Colors.green,
           ),
         );
 
         _formKey.currentState!.reset();
+        _documentoController.clear();
         _descricaoController.clear();
         _valorController.clear();
         setState(() {
+          _faturasXml.clear();
+          _chaveNfe = null;
           _jaPago = false;
           _isParcelado = false;
-          _categoriaSelecionada = null;
         });
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -152,142 +257,211 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Novo Lançamento'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'ENTRADA',
-                    label: Text('Receita (Entrada)'),
-                    icon: Icon(Icons.arrow_downward),
-                  ),
-                  ButtonSegment(
-                    value: 'SAIDA',
-                    label: Text('Despesa (Saída)'),
-                    icon: Icon(Icons.arrow_upward),
-                  ),
-                ],
-                selected: {_tipoSelecionado},
-                onSelectionChanged: (Set<String> newSelection) =>
-                    setState(() => _tipoSelecionado = newSelection.first),
-                style: ButtonStyle(
-                  backgroundColor: WidgetStateProperty.resolveWith<Color>((
-                    states,
-                  ) {
-                    if (states.contains(WidgetState.selected)) {
-                      return _tipoSelecionado == 'ENTRADA'
-                          ? Colors.green.withValues(alpha: 0.2)
-                          : Colors.red.withValues(alpha: 0.2);
-                    }
-                    return Colors.transparent;
-                  }),
-                ),
+    if (AppState().empresaAtiva.value == null) {
+      return const Center(
+        child: Text('Selecione a empresa dona do lançamento no topo.'),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _isLoading ? null : _importarEPreencherViaXml,
+              icon: const Icon(Icons.auto_fix_high, color: Colors.purple),
+              label: const Text('Preencher Formulário via XML (NFe)'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                side: const BorderSide(color: Colors.purple),
               ),
-              const SizedBox(height: 24),
-              TextFormField(
-                controller: _descricaoController,
-                decoration: const InputDecoration(
-                  labelText: 'Descrição (Ex: Aluguel)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.description),
+            ),
+            const SizedBox(height: 24),
+
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(
+                  value: 'ENTRADA',
+                  label: Text('Receita (Entrada)'),
+                  icon: Icon(Icons.arrow_downward),
                 ),
-                validator: (value) => value == null || value.isEmpty
-                    ? 'Informe a descrição'
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _valorController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+                ButtonSegment(
+                  value: 'SAIDA',
+                  label: Text('Despesa (Saída)'),
+                  icon: Icon(Icons.arrow_upward),
                 ),
-                decoration: const InputDecoration(
-                  labelText: 'Valor Total (R\$)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.attach_money),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) return 'Informe o valor';
-                  if (double.tryParse(value.replaceAll(',', '.')) == null) {
-                    return 'Valor inválido';
+              ],
+              selected: {_tipoSelecionado},
+              onSelectionChanged: (Set<String> newSelection) {
+                setState(() {
+                  _tipoSelecionado = newSelection.first;
+                  _categoriaSelecionada = null;
+                });
+              },
+              style: ButtonStyle(
+                backgroundColor: WidgetStateProperty.resolveWith<Color>((
+                  states,
+                ) {
+                  if (states.contains(WidgetState.selected)) {
+                    return _tipoSelecionado == 'ENTRADA'
+                        ? Colors.green.withValues(alpha: 0.2)
+                        : Colors.red.withValues(alpha: 0.2);
                   }
-                  return null;
-                },
+                  return Colors.transparent;
+                }),
               ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _categoriaSelecionada,
-                decoration: const InputDecoration(
-                  labelText: 'Categoria (Plano de Contas)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.category),
+            ),
+            const SizedBox(height: 16),
+
+            DropdownButtonFormField<String>(
+              value: _categoriaSelecionada,
+              decoration: const InputDecoration(
+                labelText: 'Categoria (Plano de Contas)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.category),
+              ),
+              items: _categorias
+                  .where((c) => c['tipo'] == _tipoSelecionado)
+                  .map(
+                    (c) => DropdownMenuItem<String>(
+                      value: c['id'],
+                      child: Text(c['nome']),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _categoriaSelecionada = v),
+              validator: (value) =>
+                  value == null ? 'Selecione a categoria' : null,
+            ),
+            const SizedBox(height: 16),
+
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _documentoController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nº Documento / NF',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
                 ),
-                items: _categorias
-                    .where(
-                      (c) => c['tipo'] == _tipoSelecionado,
-                    ) // Filtra para mostrar só entrada ou saída
-                    .map(
-                      (c) => DropdownMenuItem<String>(
-                        value: c['id'],
-                        child: Text(c['nome']),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _categoriaSelecionada = v),
-                validator: (value) =>
-                    value == null ? 'Selecione uma categoria' : null,
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    controller: _descricaoController,
+                    decoration: const InputDecoration(
+                      labelText: 'Descrição (Ex: Aluguel)',
+                      border: OutlineInputBorder(),
+                    ),
+                    validator: (v) =>
+                        v == null || v.isEmpty ? 'Informe a descrição' : null,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            TextFormField(
+              controller: _valorController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
               ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: _BotaoData(
-                      label: 'Competência (DRE)',
-                      data: _dataCompetencia,
-                      onTap: () => _selecionarData(
-                        context,
-                        _dataCompetencia,
-                        (d) => _dataCompetencia = d,
-                      ),
+              decoration: const InputDecoration(
+                labelText: 'Valor Total (R\$)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.attach_money),
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) return 'Informe o valor';
+                if (double.tryParse(value.replaceAll(',', '.')) == null)
+                  return 'Valor inválido';
+                return null;
+              },
+            ),
+            const SizedBox(height: 24),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _BotaoData(
+                    label: 'Competência (DRE)',
+                    data: _dataCompetencia,
+                    onTap: () => _selecionarData(
+                      context,
+                      _dataCompetencia,
+                      (d) => _dataCompetencia = d,
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _BotaoData(
-                      label: '1º Vencimento (Caixa)',
-                      data: _dataVencimento,
-                      onTap: () => _selecionarData(
-                        context,
-                        _dataVencimento,
-                        (d) => _dataVencimento = d,
-                      ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _BotaoData(
+                    label: 'Vencimento Base',
+                    data: _dataVencimento,
+                    onTap: () => _selecionarData(
+                      context,
+                      _dataVencimento,
+                      (d) => _dataVencimento = d,
                     ),
                   ),
-                ],
+                ),
+              ],
+            ),
+            const Divider(height: 48),
+
+            if (_faturasXml.isNotEmpty) ...[
+              const Text(
+                'Faturas importadas da NFe:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple,
+                ),
               ),
-              const Divider(height: 48),
+              const SizedBox(height: 8),
+              Card(
+                elevation: 0,
+                color: Colors.purple.withValues(alpha: 0.1),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    children: _faturasXml
+                        .map(
+                          (f) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Vencimento: ${f['vencimento']}'),
+                                Text(
+                                  'R\$ ${f['valor']}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ),
+              ),
+            ] else ...[
               SwitchListTile(
                 title: const Text(
                   'Parcelar este lançamento?',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
                 value: _isParcelado,
-                onChanged: (bool value) {
-                  setState(() {
-                    _isParcelado = value;
-                    if (value) _jaPago = false;
-                  });
-                },
+                onChanged: (bool value) => setState(() {
+                  _isParcelado = value;
+                  if (value) _jaPago = false;
+                }),
               ),
               if (_isParcelado)
                 Row(
@@ -320,7 +494,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 ),
               if (!_isParcelado) ...[
                 SwitchListTile(
-                  title: const Text('Lançamento já pago/recebido?'),
+                  title: const Text('Lançamento já foi pago/recebido?'),
                   value: _jaPago,
                   onChanged: (bool value) => setState(() => _jaPago = value),
                 ),
@@ -335,21 +509,21 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                     ),
                   ),
               ],
-              const SizedBox(height: 32),
-              ElevatedButton.icon(
-                onPressed: _isLoading ? null : _salvarLancamento,
-                icon: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Icon(Icons.save),
-                label: Text(_isLoading ? 'Salvando...' : 'Salvar Lançamento'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Colors.white,
-                ),
-              ),
             ],
-          ),
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: _isLoading ? null : _salvarLancamento,
+              icon: _isLoading
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Icon(Icons.save),
+              label: Text(_isLoading ? 'Processando...' : 'Salvar Lançamento'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -365,6 +539,7 @@ class _BotaoData extends StatelessWidget {
     required this.data,
     required this.onTap,
   });
+
   @override
   Widget build(BuildContext context) {
     return InkWell(

@@ -1,20 +1,17 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
+import 'database_helper.dart';
 
 class CategoriaService {
-  final _supabase = Supabase.instance.client;
+  final _uuid = const Uuid();
 
   Future<List<Map<String, dynamic>>> buscarCategorias(String empresaId) async {
-    try {
-      final response = await _supabase
-          .from('categorias')
-          .select()
-          .eq('empresa_id', empresaId)
-          .order('tipo', ascending: true)
-          .order('grupo_dre', ascending: true);
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      throw Exception('Erro ao buscar categorias: $e');
-    }
+    final db = await DatabaseHelper.instance.database;
+    return await db.query(
+      'categorias',
+      where: 'empresa_id = ?',
+      whereArgs: [empresaId],
+      orderBy: 'tipo ASC, grupo_dre ASC',
+    );
   }
 
   Future<void> salvarCategoria({
@@ -24,31 +21,25 @@ class CategoriaService {
     required String grupoDre,
     required String tipo,
   }) async {
-    try {
-      final data = {
-        'empresa_id': empresaId,
-        'nome': nome,
-        'grupo_dre': grupoDre,
-        'tipo': tipo,
-      };
+    final db = await DatabaseHelper.instance.database;
+    final data = {
+      'empresa_id': empresaId,
+      'nome': nome,
+      'grupo_dre': grupoDre,
+      'tipo': tipo,
+      'created_at': DateTime.now().toIso8601String(),
+    };
 
-      if (id == null) {
-        await _supabase.from('categorias').insert(data);
-      } else {
-        await _supabase.from('categorias').update(data).eq('id', id);
-      }
-    } catch (e) {
-      throw Exception('Erro ao salvar categoria: $e');
+    if (id == null) {
+      data['id'] = _uuid.v4();
+      await db.insert('categorias', data);
+    } else {
+      await db.update('categorias', data, where: 'id = ?', whereArgs: [id]);
     }
   }
 
   Future<void> excluirCategoria(String id) async {
-    try {
-      await _supabase.from('categorias').delete().eq('id', id);
-    } catch (e) {
-      throw Exception(
-        'Erro ao excluir categoria (Verifique se há lançamentos vinculados): $e',
-      );
-    }
+    final db = await DatabaseHelper.instance.database;
+    await db.delete('categorias', where: 'id = ?', whereArgs: [id]);
   }
 }

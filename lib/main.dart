@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/main_screen.dart';
+import 'services/database_helper.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Substitua pelas suas credenciais do Supabase
-  await Supabase.initialize(
-    url: 'https://rblldjhbzjhhyjjvqsbr.supabase.co',
-    publishableKey: 'sb_publishable_GGLUQclfy_Pp1myhwXRmMA_N_u6brUu',
-  );
+  // Força a inicialização do banco SQLite assim que o app abrir
+  await DatabaseHelper.instance.database;
+
+  // 2. CARREGA O DICIONÁRIO PT-BR ANTES DE O APP INICIAR
+  await initializeDateFormatting('pt_BR', null);
 
   runApp(const CoreFinanceApp());
 }
@@ -21,6 +22,7 @@ class CoreFinanceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'CoreFinance',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
         useMaterial3: true,

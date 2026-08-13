@@ -11,8 +11,9 @@ class CategoriasPage extends StatefulWidget {
 
 class _CategoriasPageState extends State<CategoriasPage> {
   final CategoriaService _categoriaService = CategoriaService();
+
   List<Map<String, dynamic>> _categorias = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -28,29 +29,36 @@ class _CategoriasPageState extends State<CategoriasPage> {
   }
 
   Future<void> _carregarCategorias() async {
-    final empresaAtual = AppState().empresaAtiva.value;
-    if (empresaAtual == null) return;
+    final empresa = AppState().empresaAtiva.value;
+    if (empresa == null) {
+      if (mounted) setState(() => _categorias = []);
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
-      final dados = await _categoriaService.buscarCategorias(empresaAtual.id);
+      final dados = await _categoriaService.buscarCategorias(empresa.id);
       setState(() {
         _categorias = dados;
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
   void _abrirFormulario({Map<String, dynamic>? categoria}) {
+    final empresa = AppState().empresaAtiva.value;
+    if (empresa == null) return;
+
     final nomeController = TextEditingController(text: categoria?['nome']);
     String tipoSelecionado = categoria?['tipo'] ?? 'SAIDA';
     String grupoSelecionado = categoria?['grupo_dre'] ?? 'DESPESA_FIXA';
-
     final gruposDisponiveis = {
       'RECEITA_BRUTA': 'Receita Bruta',
       'DEDUCAO': 'Deduções/Impostos',
@@ -114,18 +122,23 @@ class _CategoriasPageState extends State<CategoriasPage> {
               ),
               ElevatedButton(
                 onPressed: () async {
-                  final empresaAtual = AppState().empresaAtiva.value;
-                  if (empresaAtual != null) {
-                    await _categoriaService.salvarCategoria(
-                      id: categoria?['id'],
-                      empresaId: empresaAtual.id,
-                      nome: nomeController.text,
-                      grupoDre: grupoSelecionado,
-                      tipo: tipoSelecionado,
+                  if (nomeController.text.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Informe o nome da categoria.'),
+                      ),
                     );
-                    Navigator.pop(context);
-                    _carregarCategorias();
+                    return;
                   }
+                  await _categoriaService.salvarCategoria(
+                    id: categoria?['id'],
+                    empresaId: empresa.id,
+                    nome: nomeController.text,
+                    grupoDre: grupoSelecionado,
+                    tipo: tipoSelecionado,
+                  );
+                  if (mounted) Navigator.pop(context);
+                  _carregarCategorias();
                 },
                 child: const Text('Salvar'),
               ),
@@ -153,59 +166,89 @@ class _CategoriasPageState extends State<CategoriasPage> {
 
   @override
   Widget build(BuildContext context) {
+    final empresa = AppState().empresaAtiva.value;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Plano de Contas'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _categorias.isEmpty
-          ? const Center(child: Text('Nenhuma categoria cadastrada.'))
-          : ListView.builder(
-              itemCount: _categorias.length,
-              itemBuilder: (context, index) {
-                final cat = _categorias[index];
-                final bool isEntrada = cat['tipo'] == 'ENTRADA';
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 6,
-                  ),
-                  child: ListTile(
-                    leading: Icon(
-                      isEntrada ? Icons.arrow_downward : Icons.arrow_upward,
-                      color: isEntrada ? Colors.green : Colors.red,
+      body: Column(
+        children: [
+          if (empresa == null)
+            const Expanded(
+              child: Center(
+                child: Text(
+                  'Selecione uma empresa no topo para gerenciar as categorias.',
+                ),
+              ),
+            )
+          else if (_isLoading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else if (_categorias.isEmpty)
+            const Expanded(
+              child: Center(
+                child: Text('Nenhuma categoria cadastrada para esta empresa.'),
+              ),
+            )
+          else
+            Expanded(
+              child: ListView.builder(
+                itemCount: _categorias.length,
+                itemBuilder: (context, index) {
+                  final cat = _categorias[index];
+                  final bool isEntrada = cat['tipo'] == 'ENTRADA';
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 6,
                     ),
-                    title: Text(
-                      cat['nome'],
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    child: ListTile(
+                      leading: Icon(
+                        isEntrada ? Icons.arrow_downward : Icons.arrow_upward,
+                        color: isEntrada ? Colors.green : Colors.red,
+                      ),
+                      title: Text(
+                        cat['nome'],
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        'Grupo DRE: ${_formatarGrupoDre(cat['grupo_dre'])}',
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () => _abrirFormulario(categoria: cat),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () async {
+                              await _categoriaService.excluirCategoria(
+                                cat['id'],
+                              );
+                              _carregarCategorias();
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    subtitle: Text(
-                      'Grupo DRE: ${_formatarGrupoDre(cat['grupo_dre'])}',
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.blue),
-                          onPressed: () => _abrirFormulario(categoria: cat),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            await _categoriaService.excluirCategoria(cat['id']);
-                            _carregarCategorias();
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _abrirFormulario(),
+        onPressed: () {
+          if (AppState().empresaAtiva.value == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Selecione uma empresa primeiro no topo.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            return;
+          }
+          _abrirFormulario();
+        },
         child: const Icon(Icons.add),
       ),
     );

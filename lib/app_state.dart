@@ -14,17 +14,23 @@ class Empresa {
       cnpj: map['cnpj'],
     );
   }
+
+  // Necessário para o Dropdown comparar corretamente os objetos
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Empresa && runtimeType == other.runtimeType && id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 class AppState {
-  // Padrão Singleton para ter uma única instância em todo o app
   static final AppState _instancia = AppState._interno();
   factory AppState() => _instancia;
   AppState._interno();
 
-  // Variável reativa que guarda a empresa atual
-  final ValueNotifier<Empresa?> empresaAtiva = ValueNotifier<Empresa?>(null);
-
-  // Lista de todas as empresas disponíveis para o menu
   final ValueNotifier<List<Empresa>> empresasDisponiveis = ValueNotifier([]);
+  // Restauramos a empresa ativa globalmente
+  final ValueNotifier<Empresa?> empresaAtiva = ValueNotifier(null);
 }

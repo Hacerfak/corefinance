@@ -1,17 +1,18 @@
 import 'dart:io';
 import 'package:xml/xml.dart';
+import '../app_state.dart';
 
 class XmlParserService {
-  /// Analisa o XML e retorna um mapa com os dados financeiros da nota
+  /// Analisa o XML, descobre a empresa dona da nota e retorna os dados preenchidos
   Future<Map<String, dynamic>?> processarNfe(
     File arquivoXml,
-    String cnpjMinhaEmpresa,
+    List<Empresa> minhasEmpresas,
   ) async {
     try {
       final xmlString = await arquivoXml.readAsString();
       final document = XmlDocument.parse(xmlString);
 
-      // 1. Identificar CNPJs
+      // 1. Identificar CNPJs no XML
       final cnpjEmitente = document
           .findAllElements('emit')
           .first
@@ -25,73 +26,75 @@ class XmlParserService {
           .first
           .innerText;
 
-      // 2. Definir se é Venda (Entrada de dinheiro) ou Compra (Saída de dinheiro)
-      String tipoTransacao;
-      String cnpjOutraParte;
-      String nomeOutraParte;
+      String tipoTransacao = '';
+      String cnpjOutraParte = '';
+      String nomeOutraParte = '';
+      Empresa? empresaIdentificada;
 
-      // Remove pontuações do CNPJ da empresa logada para comparar com segurança
-      final meuCnpjLimpo = cnpjMinhaEmpresa.replaceAll(RegExp(r'[^0-9]'), '');
+      // 2. Descobrir de qual empresa cadastrada é esta nota
+      for (var emp in minhasEmpresas) {
+        final meuCnpjLimpo = emp.cnpj.replaceAll(RegExp(r'[^0-9]'), '');
 
-      if (cnpjEmitente == meuCnpjLimpo) {
-        tipoTransacao = 'ENTRADA'; // Minha empresa emitiu = Venda
-        cnpjOutraParte = cnpjDestinatario;
-        nomeOutraParte = document
-            .findAllElements('dest')
-            .first
-            .findElements('xNome')
-            .first
-            .innerText;
-      } else if (cnpjDestinatario == meuCnpjLimpo) {
-        tipoTransacao = 'SAIDA'; // Minha empresa recebeu = Compra
-        cnpjOutraParte = cnpjEmitente;
-        nomeOutraParte = document
-            .findAllElements('emit')
-            .first
-            .findElements('xNome')
-            .first
-            .innerText;
-      } else {
+        if (cnpjEmitente == meuCnpjLimpo) {
+          tipoTransacao = 'ENTRADA'; // Minha empresa emitiu = Venda/Receita
+          cnpjOutraParte = cnpjDestinatario;
+          nomeOutraParte = document
+              .findAllElements('dest')
+              .first
+              .findElements('xNome')
+              .first
+              .innerText;
+          empresaIdentificada = emp;
+          break;
+        } else if (cnpjDestinatario == meuCnpjLimpo) {
+          tipoTransacao = 'SAIDA'; // Minha empresa recebeu = Compra/Despesa
+          cnpjOutraParte = cnpjEmitente;
+          nomeOutraParte = document
+              .findAllElements('emit')
+              .first
+              .findElements('xNome')
+              .first
+              .innerText;
+          empresaIdentificada = emp;
+          break;
+        }
+      }
+
+      if (empresaIdentificada == null) {
         throw Exception(
-          "Esta nota não pertence à empresa selecionada ($meuCnpjLimpo).",
+          "Esta nota não pertence a nenhuma das empresas cadastradas no aplicativo.",
         );
       }
 
-      // 3. Dados para o DRE (Competência e Valor Total)
-      final dataEmissao = document
-          .findAllElements('dhEmi')
-          .first
-          .innerText; // Competência
+      // 3. Extrair Valores e Datas
+      final dataEmissao = document.findAllElements('dhEmi').first.innerText;
       final valorTotal = document.findAllElements('vNF').first.innerText;
+      final documentoNfe = document.findAllElements('nNF').first.innerText;
 
-      // 4. Dados para o Fluxo de Caixa (Faturas/Duplicatas)
+      // 4. Faturas/Parcelas
       List<Map<String, String>> parcelas = [];
       final duplicatas = document.findAllElements('dup');
-
       for (var dup in duplicatas) {
         parcelas.add({
-          'vencimento': dup.findElements('dVenc').first.innerText, // Caixa
+          'vencimento': dup.findElements('dVenc').first.innerText,
           'valor': dup.findElements('vDup').first.innerText,
         });
       }
 
       return {
+        'empresa_id': empresaIdentificada.id,
         'tipo': tipoTransacao,
-        'documento_outra_parte': document
-            .findAllElements('nNF')
-            .first
-            .innerText,
+        'documento': documentoNfe,
         'nome_outra_parte': nomeOutraParte,
-        'data_competencia': dataEmissao,
+        'data_competencia': dataEmissao.substring(0, 10),
         'valor_total': valorTotal,
         'parcelas': parcelas,
         'chave_nfe': document.findAllElements('chNFe').isNotEmpty
             ? document.findAllElements('chNFe').first.innerText
-            : 'Sem Chave',
+            : null,
       };
     } catch (e) {
-      print("Erro ao processar XML: $e");
-      return null;
+      throw Exception("Erro ao processar XML: $e");
     }
   }
 }
