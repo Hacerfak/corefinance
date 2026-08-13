@@ -43,7 +43,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
   void initState() {
     super.initState();
     AppState().empresaAtiva.addListener(_aoMudarEmpresa);
-    _aoMudarEmpresa(); // Carrega as categorias imediatamente se houver empresa
+    _aoMudarEmpresa();
   }
 
   @override
@@ -59,8 +59,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
       if (mounted) {
         setState(() {
           _categorias = cats;
-          _categoriaSelecionada =
-              null; // Reseta a categoria ao mudar de empresa
+          _categoriaSelecionada = null;
         });
       }
     } else {
@@ -97,7 +96,6 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
         );
 
         if (dados != null) {
-          // Muda a empresa ativa do AppState automaticamente para a encontrada no XML
           final empresaEncontrada = empresasCadastradas.firstWhere(
             (e) => e.id == dados['empresa_id'],
           );
@@ -118,7 +116,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('XML carregado! Categoria e Salve.'),
+                content: Text('XML carregado! Verifique e Salve.'),
                 backgroundColor: Colors.green,
               ),
             );
@@ -173,7 +171,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
           for (int i = 0; i < _faturasXml.length; i++) {
             lote.add({
               'empresa_id': empresa.id,
-              'categoria_id': _categoriaSelecionada,
+              'categoria_id': _tipoSelecionado == 'SALDO'
+                  ? null
+                  : _categoriaSelecionada,
               'documento': _documentoController.text,
               'descricao':
                   '${_descricaoController.text} (Parc ${i + 1}/${_faturasXml.length})',
@@ -184,7 +184,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               'chave_nfe': _chaveNfe,
             });
           }
-        } else if (_isParcelado) {
+        } else if (_isParcelado && _tipoSelecionado != 'SALDO') {
           final valorParcela = valorTotal / _qtdParcelas;
           for (int i = 0; i < _qtdParcelas; i++) {
             final vencimentoParcela = _dataVencimento.add(
@@ -193,9 +193,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             lote.add({
               'empresa_id': empresa.id,
               'categoria_id': _categoriaSelecionada,
-              'documento': _documentoController.text.isEmpty
-                  ? null
-                  : _documentoController.text,
+              'documento': _documentoController.text,
               'descricao':
                   '${_descricaoController.text} (Parcela ${i + 1}/$_qtdParcelas)',
               'tipo': _tipoSelecionado,
@@ -210,16 +208,16 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
         } else {
           lote.add({
             'empresa_id': empresa.id,
-            'categoria_id': _categoriaSelecionada,
-            'documento': _documentoController.text.isEmpty
+            'categoria_id': _tipoSelecionado == 'SALDO'
                 ? null
-                : _documentoController.text,
+                : _categoriaSelecionada,
+            'documento': _documentoController.text,
             'descricao': _descricaoController.text,
             'tipo': _tipoSelecionado,
             'valor': valorTotal,
             'data_competencia': dataCompStr,
             'data_vencimento': _dataVencimento.toIso8601String().split('T')[0],
-            'data_pagamento': _jaPago
+            'data_pagamento': _jaPago || _tipoSelecionado == 'SALDO'
                 ? _dataPagamento.toIso8601String().split('T')[0]
                 : null,
             'chave_nfe': _chaveNfe,
@@ -281,17 +279,23 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             ),
             const SizedBox(height: 24),
 
+            // AGORA COM OPÇÃO DE SALDO
             SegmentedButton<String>(
               segments: const [
                 ButtonSegment(
                   value: 'ENTRADA',
-                  label: Text('Receita (Entrada)'),
+                  label: Text('Receita'),
                   icon: Icon(Icons.arrow_downward),
                 ),
                 ButtonSegment(
                   value: 'SAIDA',
-                  label: Text('Despesa (Saída)'),
+                  label: Text('Despesa'),
                   icon: Icon(Icons.arrow_upward),
+                ),
+                ButtonSegment(
+                  value: 'SALDO',
+                  label: Text('Saldo Inicial'),
+                  icon: Icon(Icons.account_balance_wallet),
                 ),
               ],
               selected: {_tipoSelecionado},
@@ -299,6 +303,11 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 setState(() {
                   _tipoSelecionado = newSelection.first;
                   _categoriaSelecionada = null;
+                  if (_tipoSelecionado == 'SALDO') {
+                    _isParcelado = false;
+                    _jaPago =
+                        true; // Saldos geralmente entram como já realizados
+                  }
                 });
               },
               style: ButtonStyle(
@@ -306,9 +315,11 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   states,
                 ) {
                   if (states.contains(WidgetState.selected)) {
-                    return _tipoSelecionado == 'ENTRADA'
-                        ? Colors.green.withValues(alpha: 0.2)
-                        : Colors.red.withValues(alpha: 0.2);
+                    if (_tipoSelecionado == 'ENTRADA')
+                      return Colors.green.withValues(alpha: 0.2);
+                    if (_tipoSelecionado == 'SAIDA')
+                      return Colors.red.withValues(alpha: 0.2);
+                    return Colors.blue.withValues(alpha: 0.2);
                   }
                   return Colors.transparent;
                 }),
@@ -316,27 +327,30 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             ),
             const SizedBox(height: 16),
 
-            DropdownButtonFormField<String>(
-              value: _categoriaSelecionada,
-              decoration: const InputDecoration(
-                labelText: 'Categoria (Plano de Contas)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.category),
+            // OCULTA CATEGORIA SE FOR SALDO
+            if (_tipoSelecionado != 'SALDO') ...[
+              DropdownButtonFormField<String>(
+                value: _categoriaSelecionada,
+                decoration: const InputDecoration(
+                  labelText: 'Categoria (Plano de Contas)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.category),
+                ),
+                items: _categorias
+                    .where((c) => c['tipo'] == _tipoSelecionado)
+                    .map(
+                      (c) => DropdownMenuItem<String>(
+                        value: c['id'],
+                        child: Text(c['nome']),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setState(() => _categoriaSelecionada = v),
+                validator: (value) =>
+                    value == null ? 'Selecione a categoria' : null,
               ),
-              items: _categorias
-                  .where((c) => c['tipo'] == _tipoSelecionado)
-                  .map(
-                    (c) => DropdownMenuItem<String>(
-                      value: c['id'],
-                      child: Text(c['nome']),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (v) => setState(() => _categoriaSelecionada = v),
-              validator: (value) =>
-                  value == null ? 'Selecione a categoria' : null,
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
+            ],
 
             Row(
               children: [
@@ -354,9 +368,11 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   flex: 2,
                   child: TextFormField(
                     controller: _descricaoController,
-                    decoration: const InputDecoration(
-                      labelText: 'Descrição (Ex: Aluguel)',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: _tipoSelecionado == 'SALDO'
+                          ? 'Descrição (Ex: Saldo Banco X)'
+                          : 'Descrição (Ex: Aluguel)',
+                      border: const OutlineInputBorder(),
                     ),
                     validator: (v) =>
                         v == null || v.isEmpty ? 'Informe a descrição' : null,
@@ -370,11 +386,14 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               controller: _valorController,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
-              ),
-              decoration: const InputDecoration(
-                labelText: 'Valor Total (R\$)',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.attach_money),
+                signed: true,
+              ), // Permitir negativos
+              decoration: InputDecoration(
+                labelText: _tipoSelecionado == 'SALDO'
+                    ? 'Valor (Use - para ajustes negativos)'
+                    : 'Valor Total (R\$)',
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.attach_money),
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) return 'Informe o valor';
@@ -401,7 +420,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: _BotaoData(
-                    label: 'Vencimento Base',
+                    label: _tipoSelecionado == 'SALDO'
+                        ? 'Data do Ajuste'
+                        : 'Vencimento Base',
                     data: _dataVencimento,
                     onTap: () => _selecionarData(
                       context,
@@ -414,7 +435,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             ),
             const Divider(height: 48),
 
-            if (_faturasXml.isNotEmpty) ...[
+            if (_faturasXml.isNotEmpty && _tipoSelecionado != 'SALDO') ...[
               const Text(
                 'Faturas importadas da NFe:',
                 style: TextStyle(
@@ -451,7 +472,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   ),
                 ),
               ),
-            ] else ...[
+            ] else if (_tipoSelecionado != 'SALDO') ...[
               SwitchListTile(
                 title: const Text(
                   'Parcelar este lançamento?',
@@ -510,6 +531,26 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   ),
               ],
             ],
+
+            // SE FOR SALDO, APENAS PERGUNTA A DATA EFETIVA SE ESTIVER MARCADO COMO REALIZADO
+            if (_tipoSelecionado == 'SALDO') ...[
+              SwitchListTile(
+                title: const Text('Ajuste já foi realizado no banco?'),
+                value: _jaPago,
+                onChanged: (bool value) => setState(() => _jaPago = value),
+              ),
+              if (_jaPago)
+                _BotaoData(
+                  label: 'Data Efetiva do Ajuste',
+                  data: _dataPagamento,
+                  onTap: () => _selecionarData(
+                    context,
+                    _dataPagamento,
+                    (d) => _dataPagamento = d,
+                  ),
+                ),
+            ],
+
             const SizedBox(height: 32),
             ElevatedButton.icon(
               onPressed: _isLoading ? null : _salvarLancamento,

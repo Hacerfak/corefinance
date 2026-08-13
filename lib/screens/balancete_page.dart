@@ -18,8 +18,12 @@ class _BalancetePageState extends State<BalancetePage> {
 
   Map<String, List<Map<String, dynamic>>> _entradasAgrupadas = {};
   Map<String, List<Map<String, dynamic>>> _saidasAgrupadas = {};
+  Map<String, List<Map<String, dynamic>>> _ajustesAgrupados = {};
+
   double _totalEntradas = 0;
   double _totalSaidas = 0;
+  double _totalAjustes = 0;
+  double _saldoAnterior = 0; // Novo
 
   @override
   void initState() {
@@ -36,15 +40,7 @@ class _BalancetePageState extends State<BalancetePage> {
 
   Future<void> _gerarRelatorio() async {
     final empresa = AppState().empresaAtiva.value;
-    if (empresa == null) {
-      if (mounted) {
-        setState(() {
-          _entradasAgrupadas = {};
-          _saidasAgrupadas = {};
-        });
-      }
-      return;
-    }
+    if (empresa == null) return;
 
     setState(() => _isLoading = true);
     try {
@@ -53,20 +49,36 @@ class _BalancetePageState extends State<BalancetePage> {
         mesReferencia: _mesAtual,
       );
 
+      // Busca o histórico acumulado pago
+      _saldoAnterior = await _transacaoService.calcularSaldoAcumuladoAnterior(
+        empresaId: empresa.id,
+        mesReferencia: _mesAtual,
+        campoData: 'data_pagamento',
+      );
+
       _entradasAgrupadas = {};
       _saidasAgrupadas = {};
+      _ajustesAgrupados = {};
       _totalEntradas = 0;
       _totalSaidas = 0;
+      _totalAjustes = 0;
 
       for (var item in dados) {
         String catNome = item['categoria_nome'] ?? 'Sem Categoria';
         double valor = item['valor'];
-        if (item['tipo'] == 'ENTRADA') {
+        String tipo = item['tipo'];
+
+        if (tipo == 'SALDO') {
+          _totalAjustes += valor;
+          if (!_ajustesAgrupados.containsKey('Ajustes de Caixa'))
+            _ajustesAgrupados['Ajustes de Caixa'] = [];
+          _ajustesAgrupados['Ajustes de Caixa']!.add(item);
+        } else if (tipo == 'ENTRADA') {
           _totalEntradas += valor;
           if (!_entradasAgrupadas.containsKey(catNome))
             _entradasAgrupadas[catNome] = [];
           _entradasAgrupadas[catNome]!.add(item);
-        } else {
+        } else if (tipo == 'SAIDA') {
           _totalSaidas += valor;
           if (!_saidasAgrupadas.containsKey(catNome))
             _saidasAgrupadas[catNome] = [];
@@ -105,7 +117,7 @@ class _BalancetePageState extends State<BalancetePage> {
           child: Text(
             titulo,
             style: TextStyle(
-              fontSize: 20,
+              fontSize: 18,
               fontWeight: FontWeight.bold,
               color: corBase,
             ),
@@ -157,7 +169,11 @@ class _BalancetePageState extends State<BalancetePage> {
     final mesFormatado = DateFormat('MMMM yyyy', 'pt_BR').format(_mesAtual);
     final mesCapitalizado =
         mesFormatado[0].toUpperCase() + mesFormatado.substring(1);
-    final saldo = _totalEntradas - _totalSaidas;
+
+    // Matemática Financeira
+    final resultadoMes = _totalAjustes + _totalEntradas - _totalSaidas;
+    final saldoAcumuladoFinal = _saldoAnterior + resultadoMes;
+
     final empresa = AppState().empresaAtiva.value;
 
     return Column(
@@ -189,42 +205,116 @@ class _BalancetePageState extends State<BalancetePage> {
 
         Expanded(
           child: empresa == null
-              ? const Center(
-                  child: Text('Selecione uma empresa no topo para visualizar.'),
-                )
+              ? const Center(child: Text('Selecione uma empresa no topo.'))
               : _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : _entradasAgrupadas.isEmpty && _saidasAgrupadas.isEmpty
-              ? const Center(
-                  child: Text('Nenhuma conta PAGA registrada neste mês.'),
-                )
               : ListView(
                   children: [
+                    // CARD DE PANORAMA GERAL
                     Card(
                       margin: const EdgeInsets.all(16),
-                      color: saldo >= 0
-                          ? Colors.green.withValues(alpha: 0.1)
-                          : Colors.red.withValues(alpha: 0.1),
+                      elevation: 3,
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           children: [
-                            const Text(
-                              'Saldo Mensal do Caixa',
-                              style: TextStyle(fontSize: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Saldo Anterior',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    Text(
+                                      'R\$ ${_saldoAnterior.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Text(
+                                  '+',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 24,
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    const Text(
+                                      'Resultado do Mês',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    Text(
+                                      'R\$ ${resultadoMes.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: resultadoMes >= 0
+                                            ? Colors.green
+                                            : Colors.red,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                            Text(
-                              'R\$ ${saldo.toStringAsFixed(2)}',
+                            const Divider(height: 32),
+                            const Text(
+                              'SALDO FINAL ACUMULADO (EM CAIXA)',
                               style: TextStyle(
-                                fontSize: 28,
+                                fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                color: saldo >= 0 ? Colors.green : Colors.red,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'R\$ ${saldoAcumuladoFinal.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: saldoAcumuladoFinal >= 0
+                                    ? Colors.blue
+                                    : Colors.red,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
+
+                    if (_entradasAgrupadas.isEmpty &&
+                        _saidasAgrupadas.isEmpty &&
+                        _ajustesAgrupados.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(32.0),
+                        child: Center(
+                          child: Text(
+                            'Nenhuma conta paga registrada neste mês específico.',
+                          ),
+                        ),
+                      ),
+
+                    if (_ajustesAgrupados.isNotEmpty) ...[
+                      _construirGrupo(
+                        'SALDOS INICIAIS E AJUSTES',
+                        _ajustesAgrupados,
+                        Colors.blue,
+                      ),
+                      const Divider(),
+                    ],
                     _construirGrupo(
                       'ENTRADAS (RECEITAS)',
                       _entradasAgrupadas,

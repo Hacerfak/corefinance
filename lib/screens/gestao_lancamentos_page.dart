@@ -159,7 +159,26 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
                   itemBuilder: (context, index) {
                     final item = _lancamentos[index];
                     final isEntrada = item['tipo'] == 'ENTRADA';
+                    final isSaldo = item['tipo'] == 'SALDO';
                     final isPago = item['data_pagamento'] != null;
+
+                    // Lógica de Cores e Ícones
+                    Color corIconeFundo = isSaldo
+                        ? Colors.blue.withValues(alpha: 0.2)
+                        : (isPago
+                              ? Colors.green.withValues(alpha: 0.2)
+                              : Colors.orange.withValues(alpha: 0.2));
+                    Color corIcone = isSaldo
+                        ? Colors.blue
+                        : (isPago ? Colors.green : Colors.orange);
+                    IconData icone = isSaldo
+                        ? Icons.account_balance_wallet
+                        : (isEntrada
+                              ? Icons.arrow_downward
+                              : Icons.arrow_upward);
+                    Color corValor = isSaldo
+                        ? Colors.blue
+                        : (isEntrada ? Colors.green : Colors.red);
 
                     return Card(
                       margin: const EdgeInsets.symmetric(
@@ -168,27 +187,20 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
                       ),
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: isPago
-                              ? Colors.green.withValues(alpha: 0.2)
-                              : Colors.orange.withValues(alpha: 0.2),
-                          child: Icon(
-                            isEntrada
-                                ? Icons.arrow_downward
-                                : Icons.arrow_upward,
-                            color: isPago ? Colors.green : Colors.orange,
-                          ),
+                          backgroundColor: corIconeFundo,
+                          child: Icon(icone, color: corIcone),
                         ),
                         title: Text(
                           item['descricao'],
                           style: TextStyle(
-                            decoration: isPago
+                            decoration: isPago && !isSaldo
                                 ? TextDecoration.lineThrough
                                 : null,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         subtitle: Text(
-                          '${item['categoria_nome'] ?? 'Sem Categoria'}\nVenc: ${item['data_vencimento'].toString().substring(8, 10)}/${item['data_vencimento'].toString().substring(5, 7)}' +
+                          '${isSaldo ? 'Ajuste de Caixa' : (item['categoria_nome'] ?? 'Sem Categoria')}\nVenc: ${item['data_vencimento'].toString().substring(8, 10)}/${item['data_vencimento'].toString().substring(5, 7)}' +
                               (item['documento'] != null
                                   ? ' | Doc: ${item['documento']}'
                                   : ''),
@@ -202,7 +214,7 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
-                                color: isEntrada ? Colors.green : Colors.red,
+                                color: corValor,
                               ),
                             ),
                             PopupMenuButton<String>(
@@ -233,12 +245,12 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
                                 if (!isPago)
                                   const PopupMenuItem(
                                     value: 'pagar',
-                                    child: Text('Marcar como Pago'),
+                                    child: Text('Marcar como Realizado'),
                                   ),
                                 if (isPago)
                                   const PopupMenuItem(
                                     value: 'estornar',
-                                    child: Text('Estornar Pagamento'),
+                                    child: Text('Estornar Realização'),
                                   ),
                                 const PopupMenuItem(
                                   value: 'editar',
@@ -265,7 +277,6 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
   }
 }
 
-// Modal atualizado para editar TODOS os dados da conta
 class _FormularioEdicaoCompleta extends StatefulWidget {
   final Map<String, dynamic> lancamento;
   final String empresaId;
@@ -358,9 +369,11 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
         'tipo': _tipoSelecionado,
         'descricao': _descCtrl.text,
         'valor': double.parse(_valorCtrl.text.replaceAll(',', '.')),
-        'documento': _docCtrl.text.isEmpty ? null : _docCtrl.text,
+        'documento': _docCtrl.text,
         'chave_nfe': _chaveCtrl.text.isEmpty ? null : _chaveCtrl.text,
-        'categoria_id': _categoriaSelecionada,
+        'categoria_id': _tipoSelecionado == 'SALDO'
+            ? null
+            : _categoriaSelecionada,
         'data_competencia': _dataCompetencia.toIso8601String().split('T')[0],
         'data_vencimento': _dataVencimento.toIso8601String().split('T')[0],
         'data_pagamento': _jaPago
@@ -375,9 +388,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(24.0),
-      height:
-          MediaQuery.of(context).size.height *
-          0.85, // Aumentado para caber todos os dados
+      height: MediaQuery.of(context).size.height * 0.85,
       child: Form(
         key: _formKey,
         child: Column(
@@ -393,7 +404,6 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
               child: SingleChildScrollView(
                 child: Column(
                   children: [
-                    // TIPO DE TRANSAÇÃO
                     SegmentedButton<String>(
                       segments: const [
                         ButtonSegment(
@@ -406,22 +416,28 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                           label: Text('Despesa'),
                           icon: Icon(Icons.arrow_upward),
                         ),
+                        ButtonSegment(
+                          value: 'SALDO',
+                          label: Text('Ajuste'),
+                          icon: Icon(Icons.account_balance_wallet),
+                        ),
                       ],
                       selected: {_tipoSelecionado},
                       onSelectionChanged: (Set<String> newSelection) {
                         setState(() {
                           _tipoSelecionado = newSelection.first;
-                          _categoriaSelecionada =
-                              null; // Limpa a categoria ao mudar o tipo
+                          _categoriaSelecionada = null;
                         });
                       },
                       style: ButtonStyle(
                         backgroundColor: WidgetStateProperty.resolveWith<Color>(
                           (states) {
                             if (states.contains(WidgetState.selected)) {
-                              return _tipoSelecionado == 'ENTRADA'
-                                  ? Colors.green.withValues(alpha: 0.2)
-                                  : Colors.red.withValues(alpha: 0.2);
+                              if (_tipoSelecionado == 'ENTRADA')
+                                return Colors.green.withValues(alpha: 0.2);
+                              if (_tipoSelecionado == 'SAIDA')
+                                return Colors.red.withValues(alpha: 0.2);
+                              return Colors.blue.withValues(alpha: 0.2);
                             }
                             return Colors.transparent;
                           },
@@ -430,29 +446,31 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                     ),
                     const SizedBox(height: 16),
 
-                    // CATEGORIA
-                    DropdownButtonFormField<String>(
-                      value: _categoriaSelecionada,
-                      decoration: const InputDecoration(
-                        labelText: 'Categoria',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.category),
+                    if (_tipoSelecionado != 'SALDO') ...[
+                      DropdownButtonFormField<String>(
+                        value: _categoriaSelecionada,
+                        decoration: const InputDecoration(
+                          labelText: 'Categoria',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.category),
+                        ),
+                        items: _categorias
+                            .where((c) => c['tipo'] == _tipoSelecionado)
+                            .map(
+                              (c) => DropdownMenuItem<String>(
+                                value: c['id'],
+                                child: Text(c['nome']),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (v) =>
+                            setState(() => _categoriaSelecionada = v),
+                        validator: (value) =>
+                            value == null ? 'Selecione a categoria' : null,
                       ),
-                      items: _categorias
-                          .where((c) => c['tipo'] == _tipoSelecionado)
-                          .map(
-                            (c) => DropdownMenuItem<String>(
-                              value: c['id'],
-                              child: Text(c['nome']),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) =>
-                          setState(() => _categoriaSelecionada = v),
-                    ),
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
+                    ],
 
-                    // DESCRIÇÃO E VALOR
                     TextFormField(
                       controller: _descCtrl,
                       decoration: const InputDecoration(
@@ -466,6 +484,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                       controller: _valorCtrl,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
+                        signed: true,
                       ),
                       decoration: const InputDecoration(
                         labelText: 'Valor (R\$)',
@@ -476,7 +495,6 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                     ),
                     const SizedBox(height: 12),
 
-                    // DOCUMENTOS
                     Row(
                       children: [
                         Expanded(
@@ -503,7 +521,6 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                     ),
                     const SizedBox(height: 16),
 
-                    // DATAS PRINCIPAIS
                     Row(
                       children: [
                         Expanded(
@@ -533,11 +550,12 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                     ),
                     const Divider(height: 32),
 
-                    // PAGAMENTO
                     SwitchListTile(
-                      title: const Text(
-                        'Lançamento já foi pago/recebido?',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      title: Text(
+                        _tipoSelecionado == 'SALDO'
+                            ? 'Ajuste já realizado?'
+                            : 'Já foi pago/recebido?',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       value: _jaPago,
                       onChanged: (bool value) =>
@@ -545,7 +563,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                     ),
                     if (_jaPago)
                       _BotaoDataEdicao(
-                        label: 'Data Efetiva de Pagamento',
+                        label: 'Data Efetiva',
                         data: _dataPagamento,
                         onTap: () => _selecionarData(
                           context,
@@ -573,7 +591,6 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
   }
 }
 
-// Widget auxiliar para os botões de data no formulário de edição
 class _BotaoDataEdicao extends StatelessWidget {
   final String label;
   final DateTime data;

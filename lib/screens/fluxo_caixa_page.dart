@@ -20,6 +20,10 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
   double _entradasPendentes = 0;
   double _saidasPagas = 0;
   double _saidasPendentes = 0;
+  double _ajustesPago = 0;
+  double _ajustesPendente = 0;
+
+  double _saldoAnteriorProjetado = 0; // Novo
   Map<String, List<Map<String, dynamic>>> _lancamentosPorDia = {};
 
   @override
@@ -37,10 +41,7 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
 
   Future<void> _gerarFluxo() async {
     final empresa = AppState().empresaAtiva.value;
-    if (empresa == null) {
-      if (mounted) setState(() => _lancamentosPorDia = {});
-      return;
-    }
+    if (empresa == null) return;
 
     setState(() => _isLoading = true);
     try {
@@ -49,24 +50,39 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
         mesReferencia: _mesAtual,
       );
 
+      // Pega todo o histórico projetado (tudo que vencia antes deste mês)
+      _saldoAnteriorProjetado = await _transacaoService
+          .calcularSaldoAcumuladoAnterior(
+            empresaId: empresa.id,
+            mesReferencia: _mesAtual,
+            campoData: 'data_vencimento',
+          );
+
       _entradasPagas = 0;
       _entradasPendentes = 0;
       _saidasPagas = 0;
       _saidasPendentes = 0;
+      _ajustesPago = 0;
+      _ajustesPendente = 0;
       _lancamentosPorDia = {};
 
       for (var item in dados) {
         final double valor = item['valor'];
-        final bool isEntrada = item['tipo'] == 'ENTRADA';
+        final String tipo = item['tipo'];
         final bool isPago = item['data_pagamento'] != null;
         final String vencimento = item['data_vencimento'];
 
-        if (isEntrada) {
+        if (tipo == 'SALDO') {
+          if (isPago)
+            _ajustesPago += valor;
+          else
+            _ajustesPendente += valor;
+        } else if (tipo == 'ENTRADA') {
           if (isPago)
             _entradasPagas += valor;
           else
             _entradasPendentes += valor;
-        } else {
+        } else if (tipo == 'SAIDA') {
           if (isPago)
             _saidasPagas += valor;
           else
@@ -103,7 +119,11 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
 
     final totalEntradas = _entradasPagas + _entradasPendentes;
     final totalSaidas = _saidasPagas + _saidasPendentes;
-    final saldoProjetado = totalEntradas - totalSaidas;
+    final totalAjustes = _ajustesPago + _ajustesPendente;
+
+    final variacaoMes = totalAjustes + totalEntradas - totalSaidas;
+    final saldoFinalProjetado = _saldoAnteriorProjetado + variacaoMes;
+
     final diasOrdenados = _lancamentosPorDia.keys.toList()..sort();
     final empresa = AppState().empresaAtiva.value;
 
@@ -137,34 +157,107 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
         Expanded(
           child: empresa == null
               ? const Center(
-                  child: Text(
-                    'Selecione uma empresa no topo para visualizar o fluxo.',
-                  ),
+                  child: Text('Selecione uma empresa no topo para visualizar.'),
                 )
               : _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : _lancamentosPorDia.isEmpty
-              ? const Center(child: Text('Nenhuma previsão para este mês.'))
               : ListView(
                   children: [
+                    // CARD DE PROJEÇÃO DE CAIXA
+                    Card(
+                      margin: const EdgeInsets.all(16),
+                      elevation: 3,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Saldo Inicial (Trazido)',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    Text(
+                                      'R\$ ${_saldoAnteriorProjetado.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const Text(
+                                  '+',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 24,
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    const Text(
+                                      'Variação Prevista',
+                                      style: TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    Text(
+                                      'R\$ ${variacaoMes.toStringAsFixed(2)}',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                        color: variacaoMes >= 0
+                                            ? Colors.green
+                                            : Colors.red,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const Divider(height: 32),
+                            const Text(
+                              'SALDO FINAL PROJETADO',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'R\$ ${saldoFinalProjetado.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: saldoFinalProjetado >= 0
+                                    ? Colors.blue
+                                    : Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // RESUMO DAS OPERAÇÕES DO MÊS
                     Padding(
-                      padding: const EdgeInsets.all(16.0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
                       child: Column(
                         children: [
-                          _CardResumo(
-                            titulo: 'Saldo Projetado do Mês',
-                            valor: saldoProjetado,
-                            cor: saldoProjetado >= 0
-                                ? Colors.green
-                                : Colors.red,
-                            destaque: true,
-                          ),
-                          const SizedBox(height: 8),
                           Row(
                             children: [
                               Expanded(
                                 child: _CardResumo(
-                                  titulo: 'Entradas Totais',
+                                  titulo: 'Entradas (Mês)',
                                   valor: totalEntradas,
                                   cor: Colors.green,
                                 ),
@@ -172,7 +265,7 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: _CardResumo(
-                                  titulo: 'Saídas Totais',
+                                  titulo: 'Saídas (Mês)',
                                   valor: totalSaidas,
                                   cor: Colors.red,
                                 ),
@@ -206,20 +299,32 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
                         ],
                       ),
                     ),
-                    const Divider(),
+
+                    const Divider(height: 32),
                     Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16.0,
                         vertical: 8.0,
                       ),
                       child: const Text(
-                        'Lançamentos por Data de Vencimento:',
+                        'Agenda de Lançamentos:',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
+
+                    if (_lancamentosPorDia.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(32.0),
+                        child: Center(
+                          child: Text(
+                            'Nenhuma previsão lançada para este mês.',
+                          ),
+                        ),
+                      ),
+
                     ...diasOrdenados.map((dia) {
                       final itensDoDia = _lancamentosPorDia[dia]!;
                       final dataExibicao = DateFormat(
@@ -245,17 +350,28 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
                           ),
                           ...itensDoDia.map((item) {
                             final isEntrada = item['tipo'] == 'ENTRADA';
+                            final isSaldo = item['tipo'] == 'SALDO';
                             final isPago = item['data_pagamento'] != null;
+
+                            Color corLinha = isSaldo
+                                ? Colors.blue
+                                : (isEntrada ? Colors.green : Colors.red);
+
                             return ListTile(
                               leading: Icon(
-                                isEntrada
-                                    ? Icons.arrow_circle_down
-                                    : Icons.arrow_circle_up,
-                                color: isEntrada ? Colors.green : Colors.red,
+                                isSaldo
+                                    ? Icons.account_balance_wallet
+                                    : (isEntrada
+                                          ? Icons.arrow_circle_down
+                                          : Icons.arrow_circle_up),
+                                color: corLinha,
                               ),
                               title: Text(item['descricao']),
                               subtitle: Text(
-                                item['categoria_nome'] ?? 'Sem Categoria',
+                                isSaldo
+                                    ? 'Ajuste de Saldo'
+                                    : (item['categoria_nome'] ??
+                                          'Sem Categoria'),
                               ),
                               trailing: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -265,9 +381,7 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
                                     'R\$ ${item['valor'].toStringAsFixed(2)}',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: isEntrada
-                                          ? Colors.green
-                                          : Colors.red,
+                                      color: corLinha,
                                     ),
                                   ),
                                   const SizedBox(height: 4),
@@ -311,34 +425,28 @@ class _CardResumo extends StatelessWidget {
   final String titulo;
   final double valor;
   final Color cor;
-  final bool destaque;
   const _CardResumo({
     required this.titulo,
     required this.valor,
     required this.cor,
-    this.destaque = false,
   });
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: destaque ? 4 : 1,
-      color: destaque ? cor.withValues(alpha: 0.1) : Colors.white,
+      elevation: 1,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
             Text(
               titulo,
-              style: TextStyle(
-                fontSize: destaque ? 16 : 14,
-                color: Colors.grey[700],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey[700]),
             ),
             const SizedBox(height: 8),
             Text(
               'R\$ ${valor.toStringAsFixed(2)}',
               style: TextStyle(
-                fontSize: destaque ? 28 : 20,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: cor,
               ),

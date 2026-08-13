@@ -15,15 +15,13 @@ class _DrePageState extends State<DrePage> {
 
   bool _isLoading = false;
   DateTime _mesAtual = DateTime.now();
-
-  // Controle do Regime (Falso = Competência, Verdadeiro = Caixa)
   bool _isRegimeCaixa = false;
 
-  // Acumuladores do DRE
   double _receitaBruta = 0;
   double _deducoes = 0;
   double _custosVariaveis = 0;
   double _despesasFixas = 0;
+  double _resultadoAnteriorAcumulado = 0; // Novo
 
   @override
   void initState() {
@@ -40,25 +38,22 @@ class _DrePageState extends State<DrePage> {
 
   Future<void> _gerarDre() async {
     final empresa = AppState().empresaAtiva.value;
-    if (empresa == null) {
-      if (mounted) {
-        setState(() {
-          _receitaBruta = 0;
-          _deducoes = 0;
-          _custosVariaveis = 0;
-          _despesasFixas = 0;
-        });
-      }
-      return;
-    }
+    if (empresa == null) return;
 
     setState(() => _isLoading = true);
     try {
       final dados = await _transacaoService.buscarDRE(
         empresaId: empresa.id,
         mesReferencia: _mesAtual,
-        regimeCaixa: _isRegimeCaixa, // Passando a escolha do usuário
+        regimeCaixa: _isRegimeCaixa,
       );
+
+      _resultadoAnteriorAcumulado = await _transacaoService
+          .calcularResultadoAcumuladoAnteriorDRE(
+            empresaId: empresa.id,
+            mesReferencia: _mesAtual,
+            regimeCaixa: _isRegimeCaixa,
+          );
 
       _receitaBruta = 0;
       _deducoes = 0;
@@ -69,17 +64,15 @@ class _DrePageState extends State<DrePage> {
         final double valor = item['valor'];
         final String grupo = item['grupo_dre'] ?? '';
 
-        if (grupo == 'RECEITA_BRUTA') {
+        if (grupo == 'RECEITA_BRUTA')
           _receitaBruta += valor;
-        } else if (grupo == 'DEDUCAO') {
+        else if (grupo == 'DEDUCAO')
           _deducoes += valor;
-        } else if (grupo == 'CUSTO_VARIAVEL') {
+        else if (grupo == 'CUSTO_VARIAVEL')
           _custosVariaveis += valor;
-        } else if (grupo == 'DESPESA_FIXA') {
+        else if (grupo == 'DESPESA_FIXA')
           _despesasFixas += valor;
-        }
       }
-
       setState(() {});
     } catch (e) {
       if (mounted)
@@ -105,7 +98,6 @@ class _DrePageState extends State<DrePage> {
         mesFormatado[0].toUpperCase() + mesFormatado.substring(1);
     final empresa = AppState().empresaAtiva.value;
 
-    // --- CÁLCULOS DO DRE ---
     final receitaLiquida = _receitaBruta - _deducoes;
     final margemContribuicao = receitaLiquida - _custosVariaveis;
     final resultadoLiquido = margemContribuicao - _despesasFixas;
@@ -113,13 +105,9 @@ class _DrePageState extends State<DrePage> {
         ? (resultadoLiquido / _receitaBruta) * 100
         : 0.0;
 
-    // Textos dinâmicos baseados no Regime
-    final tituloRegime = _isRegimeCaixa
-        ? 'Regime de Caixa'
-        : 'Regime de Competência';
-    final descRegime = _isRegimeCaixa
-        ? 'Considera apenas os valores que EFETIVAMENTE foram pagos e recebidos no mês.'
-        : 'Considera os valores gerados no mês, independentemente de terem sido pagos ou não.';
+    // Matemática final acumulada
+    final resultadoFinalHistorico =
+        _resultadoAnteriorAcumulado + resultadoLiquido;
 
     return Column(
       children: [
@@ -149,7 +137,6 @@ class _DrePageState extends State<DrePage> {
                 ],
               ),
               const SizedBox(height: 8),
-              // SELETOR DE REGIME
               SegmentedButton<bool>(
                 segments: const [
                   ButtonSegment(
@@ -174,9 +161,8 @@ class _DrePageState extends State<DrePage> {
                   backgroundColor: WidgetStateProperty.resolveWith<Color>((
                     states,
                   ) {
-                    if (states.contains(WidgetState.selected)) {
+                    if (states.contains(WidgetState.selected))
                       return Theme.of(context).colorScheme.primaryContainer;
-                    }
                     return Colors.transparent;
                   }),
                 ),
@@ -195,7 +181,9 @@ class _DrePageState extends State<DrePage> {
                   padding: const EdgeInsets.all(16.0),
                   children: [
                     Text(
-                      tituloRegime,
+                      _isRegimeCaixa
+                          ? 'Regime de Caixa'
+                          : 'Regime de Competência',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
@@ -203,7 +191,9 @@ class _DrePageState extends State<DrePage> {
                       ),
                     ),
                     Text(
-                      descRegime,
+                      _isRegimeCaixa
+                          ? 'Considera apenas os valores efetivamente pagos/recebidos.'
+                          : 'Considera os fatos gerados no mês (Vendas/Contas).',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
@@ -232,7 +222,6 @@ class _DrePageState extends State<DrePage> {
                               cor: Colors.blue,
                               isTotal: true,
                             ),
-
                             const SizedBox(height: 16),
                             _LinhaDre(
                               titulo: '(-) Custos Variáveis',
@@ -246,7 +235,6 @@ class _DrePageState extends State<DrePage> {
                               cor: Colors.blue,
                               isTotal: true,
                             ),
-
                             const SizedBox(height: 16),
                             _LinhaDre(
                               titulo: '(-) Despesas Fixas',
@@ -268,7 +256,7 @@ class _DrePageState extends State<DrePage> {
                                     MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
-                                    'RESULTADO LÍQUIDO',
+                                    'RESULTADO DO MÊS',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 16,
@@ -294,27 +282,72 @@ class _DrePageState extends State<DrePage> {
 
                     const SizedBox(height: 16),
 
-                    // Resumo Executivo Dinâmico
+                    // NOVO: CARD DE VISÃO ACUMULADA
                     Card(
-                      elevation: 1,
-                      color: Theme.of(context).colorScheme.primaryContainer,
+                      elevation: 3,
+                      color: Theme.of(context).colorScheme.primary,
                       child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             const Text(
-                              'Análise de Performance',
+                              'Visão de Longo Prazo (Acumulado Histórico)',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
+                                color: Colors.white,
                               ),
                             ),
+                            const SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Resultado Meses Anteriores:',
+                                  style: TextStyle(color: Colors.white70),
+                                ),
+                                Text(
+                                  'R\$ ${_resultadoAnteriorAcumulado.toStringAsFixed(2)}',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 8),
-                            Text(
-                              resultadoLiquido >= 0
-                                  ? 'A operação foi LUCRATIVA. A cada R\$ 100 ${_isRegimeCaixa ? "recebidos" : "vendidos"}, sobrou R\$ ${margemLucro.toStringAsFixed(2)} livre após deduzir os custos e despesas do período.'
-                                  : 'A operação gerou PREJUÍZO. As receitas do período não foram suficientes para cobrir as saídas operacionais.',
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Resultado do Mês Atual:',
+                                  style: TextStyle(color: Colors.white70),
+                                ),
+                                Text(
+                                  'R\$ ${resultadoLiquido.toStringAsFixed(2)}',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            ),
+                            const Divider(color: Colors.white30, height: 24),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'RESULTADO TOTAL',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                                Text(
+                                  'R\$ ${resultadoFinalHistorico.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -333,7 +366,6 @@ class _LinhaDre extends StatelessWidget {
   final double valor;
   final Color cor;
   final bool isTotal;
-
   const _LinhaDre({
     required this.titulo,
     required this.valor,

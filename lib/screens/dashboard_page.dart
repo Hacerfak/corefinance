@@ -18,6 +18,8 @@ class _DashboardPageState extends State<DashboardPage> {
 
   double _receitasRealizadas = 0;
   double _despesasRealizadas = 0;
+  double _saldoAjustes = 0; // Nova variável para saldos iniciais/ajustes
+
   double _aReceber = 0;
   double _aPagar = 0;
   List<Map<String, dynamic>> _ultimosLancamentos = [];
@@ -42,6 +44,7 @@ class _DashboardPageState extends State<DashboardPage> {
         setState(() {
           _receitasRealizadas = 0;
           _despesasRealizadas = 0;
+          _saldoAjustes = 0;
           _aReceber = 0;
           _aPagar = 0;
           _ultimosLancamentos = [];
@@ -59,20 +62,23 @@ class _DashboardPageState extends State<DashboardPage> {
 
       _receitasRealizadas = 0;
       _despesasRealizadas = 0;
+      _saldoAjustes = 0;
       _aReceber = 0;
       _aPagar = 0;
 
       for (var item in dados) {
         final double valor = item['valor'];
-        final bool isEntrada = item['tipo'] == 'ENTRADA';
+        final String tipo = item['tipo'];
         final bool isPago = item['data_pagamento'] != null;
 
-        if (isEntrada) {
+        if (tipo == 'SALDO') {
+          if (isPago) _saldoAjustes += valor;
+        } else if (tipo == 'ENTRADA') {
           if (isPago)
             _receitasRealizadas += valor;
           else
             _aReceber += valor;
-        } else {
+        } else if (tipo == 'SAIDA') {
           if (isPago)
             _despesasRealizadas += valor;
           else
@@ -104,7 +110,11 @@ class _DashboardPageState extends State<DashboardPage> {
     final mesFormatado = DateFormat('MMMM yyyy', 'pt_BR').format(_mesAtual);
     final mesCapitalizado =
         mesFormatado[0].toUpperCase() + mesFormatado.substring(1);
-    final saldoAtual = _receitasRealizadas - _despesasRealizadas;
+
+    // O Saldo Atual agora soma os Ajustes de Caixa (Saldos Iniciais)
+    final saldoAtual =
+        _saldoAjustes + _receitasRealizadas - _despesasRealizadas;
+
     final empresa = AppState().empresaAtiva.value;
 
     return Column(
@@ -178,6 +188,17 @@ class _DashboardPageState extends State<DashboardPage> {
                                       : Colors.red,
                                 ),
                               ),
+                              if (_saldoAjustes != 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8.0),
+                                  child: Text(
+                                    '(Inclui R\$ ${_saldoAjustes.toStringAsFixed(2)} de Ajustes/Saldo Inicial)',
+                                    style: TextStyle(
+                                      color: Colors.grey[700],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -245,19 +266,29 @@ class _DashboardPageState extends State<DashboardPage> {
                       else
                         ..._ultimosLancamentos.map((item) {
                           final isEntrada = item['tipo'] == 'ENTRADA';
+                          final isSaldo = item['tipo'] == 'SALDO';
                           final isPago = item['data_pagamento'] != null;
+
                           return Card(
                             elevation: 1,
                             margin: const EdgeInsets.only(bottom: 8.0),
                             child: ListTile(
                               leading: CircleAvatar(
                                 radius: 20,
-                                backgroundColor: isPago
-                                    ? Colors.green.withValues(alpha: 0.1)
-                                    : Colors.orange.withValues(alpha: 0.1),
+                                backgroundColor: isSaldo
+                                    ? Colors.blue.withValues(alpha: 0.1)
+                                    : (isPago
+                                          ? Colors.green.withValues(alpha: 0.1)
+                                          : Colors.orange.withValues(
+                                              alpha: 0.1,
+                                            )),
                                 child: Icon(
-                                  isEntrada ? Icons.add : Icons.remove,
-                                  color: isPago ? Colors.green : Colors.orange,
+                                  isSaldo
+                                      ? Icons.account_balance_wallet
+                                      : (isEntrada ? Icons.add : Icons.remove),
+                                  color: isSaldo
+                                      ? Colors.blue
+                                      : (isPago ? Colors.green : Colors.orange),
                                   size: 20,
                                 ),
                               ),
@@ -270,9 +301,13 @@ class _DashboardPageState extends State<DashboardPage> {
                                 ),
                               ),
                               subtitle: Text(
-                                isPago ? 'Pago' : 'Pendente',
+                                isSaldo
+                                    ? 'Ajuste de Caixa'
+                                    : (isPago ? 'Pago' : 'Pendente'),
                                 style: TextStyle(
-                                  color: isPago ? Colors.green : Colors.orange,
+                                  color: isSaldo
+                                      ? Colors.blue
+                                      : (isPago ? Colors.green : Colors.orange),
                                   fontSize: 12,
                                 ),
                               ),
@@ -280,7 +315,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                 'R\$ ${item['valor'].toStringAsFixed(2)}',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: isEntrada ? Colors.green : Colors.red,
+                                  color: isSaldo
+                                      ? Colors.blue
+                                      : (isEntrada ? Colors.green : Colors.red),
                                 ),
                               ),
                             ),
