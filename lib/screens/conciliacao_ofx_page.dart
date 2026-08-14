@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/ofx_parser_service.dart';
 import '../services/conciliacao_service.dart';
+import '../services/categoria_service.dart';
 import '../app_state.dart';
 
 class ConciliacaoOfxPage extends StatefulWidget {
@@ -18,26 +20,50 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
 
   List<Map<String, dynamic>> _transacoesBancarias = [];
   bool _isLoading = false;
+  DateTime _mesAtual = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    AppState().empresaAtiva.addListener(_aoMudarEmpresa);
+    AppState().empresaAtiva.addListener(_carregarDados);
+    _carregarDados();
   }
 
   @override
   void dispose() {
-    AppState().empresaAtiva.removeListener(_aoMudarEmpresa);
+    AppState().empresaAtiva.removeListener(_carregarDados);
     super.dispose();
   }
 
-  void _aoMudarEmpresa() {
-    // Limpa a tela se o usuário trocar de empresa para não misturar os dados
-    if (mounted) {
-      setState(() {
-        _transacoesBancarias.clear();
-      });
+  Future<void> _carregarDados() async {
+    final empresa = AppState().empresaAtiva.value;
+    if (empresa == null) {
+      if (mounted) setState(() => _transacoesBancarias = []);
+      return;
     }
+
+    setState(() => _isLoading = true);
+    try {
+      final dados = await _conciliacaoService.buscarTransacoesBancarias(
+        empresa.id,
+        _mesAtual,
+      );
+      setState(() => _transacoesBancarias = dados);
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _mudarMes(int incremento) {
+    setState(() {
+      _mesAtual = DateTime(_mesAtual.year, _mesAtual.month + incremento, 1);
+      _carregarDados();
+    });
   }
 
   Future<void> _importarOfx() async {
@@ -61,11 +87,19 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
       setState(() => _isLoading = true);
       File arquivo = File(result.files.single.path!);
       try {
-        final dados = await _ofxService.processarOfx(arquivo);
-        setState(() {
-          _transacoesBancarias = dados;
-          _isLoading = false;
-        });
+        final dadosBrutos = await _ofxService.processarOfx(arquivo);
+        await _conciliacaoService.salvarTransacoesBancarias(
+          empresa.id,
+          dadosBrutos,
+        );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Extrato importado com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _carregarDados(); // Recarrega do banco para garantir consistência
       } catch (e) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -75,10 +109,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
     }
   }
 
-  void _buscarSugestoesConciliacao(
-    Map<String, dynamic> transacaoOfx,
-    int indexLista,
-  ) async {
+  void _buscarSugestoesConciliacao(Map<String, dynamic> transacaoBanco) async {
     Navigator.pop(context);
     final empresa = AppState().empresaAtiva.value;
     if (empresa == null) return;
@@ -90,8 +121,8 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
     );
 
     final sugestoes = await _conciliacaoService.buscarSugestoes(
-      valorOfx: transacaoOfx['valor'],
-      dataOfx: transacaoOfx['data'],
+      valorOfx: transacaoBanco['valor'],
+      dataOfx: transacaoBanco['data'],
       empresaId: empresa.id,
     );
 
@@ -116,7 +147,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                 const Expanded(
                   child: Center(
                     child: Text(
-                      'Nenhuma conta com valor próximo foi encontrada nesta empresa.',
+                      'Nenhuma conta com valor próximo foi encontrada.',
                     ),
                   ),
                 )
@@ -129,6 +160,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                       final double valorCandidato = double.parse(
                         item['valor'].toString(),
                       );
+
                       return Card(
                         color: indexSugestao == 0
                             ? Colors.green.withValues(alpha: 0.1)
@@ -136,7 +168,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                         child: ListTile(
                           title: Text(item['descricao']),
                           subtitle: Text(
-                            'Vencimento: ${item['data_vencimento']}',
+                            'Vencimento: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(item['data_vencimento']))}',
                           ),
                           trailing: Text(
                             'R\$ ${valorCandidato.toStringAsFixed(2)}',
@@ -144,11 +176,12 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                           ),
                           onTap: () async {
                             await _conciliacaoService.efetivarConciliacao(
+                              transacaoBanco['id'],
                               item['id'].toString(),
-                              transacaoOfx['data'],
+                              transacaoBanco['data'],
                             );
                             Navigator.pop(context);
-                            _marcarComoConciliado(indexLista);
+                            _carregarDados();
                           },
                         ),
                       );
@@ -162,11 +195,112 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
     );
   }
 
-  void _abrirOpcoesConciliacao(
-    BuildContext context,
-    Map<String, dynamic> transacao,
-    int index,
-  ) {
+  void _abrirCriarLancamento(Map<String, dynamic> transacaoBanco) async {
+    Navigator.pop(context); // Fecha o menu inicial
+    final empresa = AppState().empresaAtiva.value;
+    if (empresa == null) return;
+
+    final categorias = await CategoriaService().buscarCategorias(empresa.id);
+    String? catSelecionada;
+    bool processando = false;
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateModal) => AlertDialog(
+          title: const Text('Novo Lançamento do OFX'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Descrição: ${transacaoBanco['descricao']}'),
+              if (transacaoBanco['contraparte_documento'] != null)
+                Text(
+                  'CNPJ/CPF Relacionado: ${transacaoBanco['contraparte_documento']}',
+                ), // <-- ADICIONADO NA UIv
+              const SizedBox(height: 8),
+              Text(
+                'Data: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(transacaoBanco['data']))}',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Valor: R\$ ${transacaoBanco['valor'].abs().toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 24),
+              DropdownButtonFormField<String>(
+                decoration: const InputDecoration(
+                  labelText: 'Categoria',
+                  border: OutlineInputBorder(),
+                ),
+                items: categorias
+                    .where((c) => c['tipo'] == transacaoBanco['tipo'])
+                    .map(
+                      (c) => DropdownMenuItem(
+                        value: c['id'] as String,
+                        child: Text(c['nome']),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (v) => setStateModal(() => catSelecionada = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: processando || catSelecionada == null
+                  ? null
+                  : () async {
+                      setStateModal(() => processando = true);
+                      await _conciliacaoService.criarLancamentoDoOfx(
+                        transacaoBanco['id'],
+                        {
+                          'empresa_id': empresa.id,
+                          'categoria_id': catSelecionada,
+                          'documento': 'OFX',
+                          'contraparte_documento':
+                              transacaoBanco['contraparte_documento'], // <-- ADICIONADO
+                          'descricao': transacaoBanco['descricao'],
+                          'tipo': transacaoBanco['tipo'],
+                          'valor': transacaoBanco['valor'].abs(),
+                          'data_competencia': transacaoBanco['data'],
+                          'data_vencimento': transacaoBanco['data'],
+                          'data_pagamento': transacaoBanco['data'],
+                        },
+                      );
+                      Navigator.pop(ctx);
+                      _carregarDados();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Lançamento criado com sucesso!'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    },
+              child: processando
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    )
+                  : const Text('Salvar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _abrirOpcoesConciliacao(Map<String, dynamic> transacaoBanco) {
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -176,7 +310,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Conciliar: ${transacao['descricao']}',
+                'Conciliar: ${transacaoBanco['descricao']}',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -186,17 +320,25 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
               ListTile(
                 leading: const Icon(Icons.search, color: Colors.blue),
                 title: const Text('Buscar lançamento em aberto (Sistema)'),
-                onTap: () => _buscarSugestoesConciliacao(transacao, index),
+                onTap: () => _buscarSugestoesConciliacao(transacaoBanco),
+              ),
+              ListTile(
+                leading: const Icon(Icons.add_circle, color: Colors.green),
+                title: const Text('Criar Novo Lançamento (Manual)'),
+                onTap: () => _abrirCriarLancamento(transacaoBanco),
               ),
               ListTile(
                 leading: const Icon(
-                  Icons.add_circle_outline,
-                  color: Colors.green,
+                  Icons.check_circle_outline,
+                  color: Colors.orange,
                 ),
-                title: const Text('Ignorar / Marcar como Resolvido'),
-                onTap: () {
+                title: const Text('Apenas Ignorar / Marcar Resolvido'),
+                onTap: () async {
                   Navigator.pop(context);
-                  _marcarComoConciliado(index);
+                  await _conciliacaoService.ignorarTransacao(
+                    transacaoBanco['id'],
+                  );
+                  _carregarDados();
                 },
               ),
             ],
@@ -206,91 +348,200 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
     );
   }
 
-  void _marcarComoConciliado(int index) {
-    setState(() => _transacoesBancarias[index]['conciliado'] = true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Baixado com sucesso!'),
-        backgroundColor: Colors.green,
+  void _abrirOpcoesDesfazer(Map<String, dynamic> transacaoBanco) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Desfazer Conciliação'),
+        content: const Text(
+          'Deseja estornar esta conciliação? A transação original voltará a ficar "Pendente".',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(context);
+              await _conciliacaoService.desfazerConciliacao(
+                transacaoBanco['id'],
+              );
+              _carregarDados();
+            },
+            child: const Text('Estornar'),
+          ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final mesFormatado = DateFormat('MMMM yyyy', 'pt_BR').format(_mesAtual);
+    final mesCapitalizado =
+        mesFormatado[0].toUpperCase() + mesFormatado.substring(1);
+    final empresa = AppState().empresaAtiva.value;
+
+    // Resumo de Progresso do Extrato
+    int total = _transacoesBancarias.length;
+    int concluidos = _transacoesBancarias
+        .where((t) => t['conciliado'] == 1)
+        .length;
+    double progresso = total > 0 ? concluidos / total : 0.0;
+
+    String periodoTexto = 'Sem dados';
+    if (total > 0) {
+      final datas =
+          _transacoesBancarias.map((t) => DateTime.parse(t['data'])).toList()
+            ..sort();
+      periodoTexto =
+          '${DateFormat('dd/MM/yy').format(datas.first)} até ${DateFormat('dd/MM/yy').format(datas.last)}';
+    }
+
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: ElevatedButton.icon(
-            onPressed: _isLoading ? null : _importarOfx,
-            icon: const Icon(Icons.account_balance),
-            label: const Text('Importar Extrato (.ofx)'),
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(50),
-            ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                onPressed: () => _mudarMes(-1),
+              ),
+              Text(
+                mesCapitalizado,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                onPressed: () => _mudarMes(1),
+              ),
+            ],
           ),
         ),
-        const Divider(height: 1),
-        if (_isLoading)
-          const Expanded(child: Center(child: CircularProgressIndicator()))
-        else if (_transacoesBancarias.isEmpty)
-          const Expanded(
-            child: Center(child: Text('Nenhum extrato importado.')),
-          )
-        else
-          Expanded(
-            child: ListView.builder(
-              itemCount: _transacoesBancarias.length,
-              itemBuilder: (context, index) {
-                final transacao = _transacoesBancarias[index];
-                final bool isCredito = transacao['valor'] > 0;
-                final bool isConciliado = transacao['conciliado'];
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: isConciliado
-                          ? Colors.green.withValues(alpha: 0.2)
-                          : (isCredito
-                                ? Colors.blue.withValues(alpha: 0.2)
-                                : Colors.red.withValues(alpha: 0.2)),
-                      child: Icon(
-                        isConciliado
-                            ? Icons.check
-                            : (isCredito
-                                  ? Icons.arrow_downward
-                                  : Icons.arrow_upward),
-                        color: isConciliado
-                            ? Colors.green
-                            : (isCredito ? Colors.blue : Colors.red),
-                      ),
-                    ),
-                    title: Text(transacao['descricao']),
-                    subtitle: Text('Data: ${transacao['data']}'),
-                    trailing: Text(
-                      'R\$ ${transacao['valor'].abs().toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                        color: isCredito ? Colors.blue : Colors.red,
-                      ),
-                    ),
-                    onTap: isConciliado
-                        ? null
-                        : () => _abrirOpcoesConciliacao(
-                            context,
-                            transacao,
-                            index,
-                          ),
-                  ),
-                );
-              },
+
+        if (empresa != null)
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: ElevatedButton.icon(
+              onPressed: _isLoading ? null : _importarOfx,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Importar Novo Arquivo (.ofx)'),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size.fromHeight(50),
+              ),
             ),
           ),
+
+        if (total > 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Período: $periodoTexto',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    Text(
+                      '$concluidos de $total Resolvidos',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: progresso,
+                  backgroundColor: Colors.grey[300],
+                  color: Colors.green,
+                  minHeight: 8,
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+
+        const Divider(height: 1),
+
+        Expanded(
+          child: empresa == null
+              ? const Center(child: Text('Selecione uma empresa no topo.'))
+              : _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _transacoesBancarias.isEmpty
+              ? const Center(child: Text('Nenhum extrato importado neste mês.'))
+              : ListView.builder(
+                  itemCount: _transacoesBancarias.length,
+                  itemBuilder: (context, index) {
+                    final transacao = _transacoesBancarias[index];
+                    final bool isEntrada = transacao['tipo'] == 'ENTRADA';
+                    final bool isConciliado = transacao['conciliado'] == 1;
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isConciliado
+                              ? Colors.green.withValues(alpha: 0.2)
+                              : (isEntrada
+                                    ? Colors.blue.withValues(alpha: 0.2)
+                                    : Colors.red.withValues(alpha: 0.2)),
+                          child: Icon(
+                            isConciliado
+                                ? Icons.check
+                                : (isEntrada
+                                      ? Icons.arrow_downward
+                                      : Icons.arrow_upward),
+                            color: isConciliado
+                                ? Colors.green
+                                : (isEntrada ? Colors.blue : Colors.red),
+                          ),
+                        ),
+                        title: Text(transacao['descricao']),
+                        subtitle: Text(
+                          'Data: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(transacao['data']))}',
+                        ),
+                        trailing: Text(
+                          'R\$ ${transacao['valor'].abs().toStringAsFixed(2)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: isConciliado
+                                ? Colors.grey
+                                : (isEntrada ? Colors.blue : Colors.red),
+                          ),
+                        ),
+                        onTap: () {
+                          if (isConciliado) {
+                            _abrirOpcoesDesfazer(transacao);
+                          } else {
+                            _abrirOpcoesConciliacao(transacao);
+                          }
+                        },
+                      ),
+                    );
+                  },
+                ),
+        ),
       ],
     );
   }

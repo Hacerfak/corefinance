@@ -81,9 +81,7 @@ class BackupService {
     // Obtém o token de autorização específico para o escopo do Drive
     var auth = await user.authorizationClient.authorizationForScopes(_scopes);
 
-    if (auth == null) {
-      auth = await user.authorizationClient.authorizeScopes(_scopes);
-    }
+    auth ??= await user.authorizationClient.authorizeScopes(_scopes);
 
     final accessToken = auth.accessToken;
 

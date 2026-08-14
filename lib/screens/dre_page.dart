@@ -334,6 +334,20 @@ class _DrePageState extends State<DrePage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text(
+                                  'Margem de lucro:',
+                                  style: TextStyle(color: Colors.white70),
+                                ),
+                                Text(
+                                  '${margemLucro.toStringAsFixed(0)}%',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            ),
+                            const Divider(color: Colors.white30, height: 24),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
                                   'RESULTADO TOTAL',
                                   style: TextStyle(
                                     color: Colors.white,

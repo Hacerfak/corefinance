@@ -86,6 +86,7 @@ class XmlParserService {
         'tipo': tipoTransacao,
         'documento': documentoNfe,
         'nome_outra_parte': nomeOutraParte,
+        'contraparte_documento': cnpjOutraParte, // <-- ADICIONADO
         'data_competencia': dataEmissao.substring(0, 10),
         'valor_total': valorTotal,
         'parcelas': parcelas,

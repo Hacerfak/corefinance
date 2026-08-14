@@ -297,6 +297,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
   final TransacaoService _transacaoService = TransacaoService();
 
   late TextEditingController _descCtrl;
+  late TextEditingController _contraparteDocCtrl;
   late TextEditingController _valorCtrl;
   late TextEditingController _docCtrl;
   late TextEditingController _chaveCtrl;
@@ -320,6 +321,9 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
     );
     _docCtrl = TextEditingController(
       text: widget.lancamento['documento'] ?? '',
+    );
+    _contraparteDocCtrl = TextEditingController(
+      text: widget.lancamento['contraparte_documento'] ?? '',
     );
     _chaveCtrl = TextEditingController(
       text: widget.lancamento['chave_nfe'] ?? '',
@@ -368,6 +372,9 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
         'descricao': _descCtrl.text,
         'valor': double.parse(_valorCtrl.text.replaceAll(',', '.')),
         'documento': _docCtrl.text,
+        'contraparte_documento': _contraparteDocCtrl.text.isEmpty
+            ? null
+            : _contraparteDocCtrl.text,
         'chave_nfe': _chaveCtrl.text.isEmpty ? null : _chaveCtrl.text,
         'categoria_id': _tipoSelecionado == 'SALDO'
             ? null
@@ -520,6 +527,14 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                       ],
                     ),
                     const SizedBox(height: 16),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _contraparteDocCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'CNPJ/CPF do Cliente/Fornecedor',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
 
                     Row(
                       children: [

@@ -23,6 +23,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaSelecionada;
   final TextEditingController _documentoController = TextEditingController();
+  final TextEditingController _contraparteDocController =
+      TextEditingController(); // NOVO
   final TextEditingController _descricaoController = TextEditingController();
   final TextEditingController _valorController = TextEditingController();
   String _tipoSelecionado = 'SAIDA';
@@ -104,6 +106,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
           setState(() {
             _tipoSelecionado = dados['tipo'];
             _documentoController.text = dados['documento'];
+            _contraparteDocController.text =
+                dados['contraparte_documento'] ?? ''; // NOVO
             _descricaoController.text = 'NF ${dados['nome_outra_parte']}';
             _valorController.text = dados['valor_total'];
             _dataCompetencia = DateTime.parse(dados['data_competencia']);
@@ -175,6 +179,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   ? null
                   : _categoriaSelecionada,
               'documento': _documentoController.text,
+              'contraparte_documento': _contraparteDocController.text.isEmpty
+                  ? null
+                  : _contraparteDocController.text, // NOVOv
               'descricao':
                   '${_descricaoController.text} (Parc ${i + 1}/${_faturasXml.length})',
               'tipo': _tipoSelecionado,
@@ -194,6 +201,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               'empresa_id': empresa.id,
               'categoria_id': _categoriaSelecionada,
               'documento': _documentoController.text,
+              'contraparte_documento': _contraparteDocController.text.isEmpty
+                  ? null
+                  : _contraparteDocController.text, // NOVOv
               'descricao':
                   '${_descricaoController.text} (Parcela ${i + 1}/$_qtdParcelas)',
               'tipo': _tipoSelecionado,
@@ -212,6 +222,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 ? null
                 : _categoriaSelecionada,
             'documento': _documentoController.text,
+            'contraparte_documento': _contraparteDocController.text.isEmpty
+                ? null
+                : _contraparteDocController.text, // NOVOv
             'descricao': _descricaoController.text,
             'tipo': _tipoSelecionado,
             'valor': valorTotal,
@@ -381,6 +394,15 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _contraparteDocController,
+              decoration: const InputDecoration(
+                labelText: 'CNPJ/CPF do Cliente/Fornecedor (Opcional)',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.badge),
+              ),
             ),
             const SizedBox(height: 16),
 
