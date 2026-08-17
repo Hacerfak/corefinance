@@ -8,7 +8,9 @@ import '../services/xml_parser_service.dart';
 import '../app_state.dart';
 
 class LancamentoManualPage extends StatefulWidget {
-  const LancamentoManualPage({super.key});
+  final VoidCallback? onVoltarDashboard; // Callback para trocar a aba
+
+  const LancamentoManualPage({super.key, this.onVoltarDashboard});
 
   @override
   State<LancamentoManualPage> createState() => _LancamentoManualPageState();
@@ -22,11 +24,13 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
 
   List<Map<String, dynamic>> _categorias = [];
   String? _categoriaSelecionada;
+
   final TextEditingController _documentoController = TextEditingController();
-  final TextEditingController _contraparteDocController =
-      TextEditingController(); // NOVO
   final TextEditingController _descricaoController = TextEditingController();
+  final TextEditingController _contraparteDocController =
+      TextEditingController();
   final TextEditingController _valorController = TextEditingController();
+
   String _tipoSelecionado = 'SAIDA';
   DateTime _dataCompetencia = DateTime.now();
   DateTime _dataVencimento = DateTime.now();
@@ -74,6 +78,92 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
     }
   }
 
+  // ==========================================
+  // FUNÇÃO PARA LIMPAR TODA A TELA
+  // ==========================================
+  void _resetarFormulario() {
+    _formKey.currentState?.reset();
+    _documentoController.clear();
+    _descricaoController.clear();
+    _valorController.clear();
+    _contraparteDocController.clear();
+
+    setState(() {
+      _tipoSelecionado = 'SAIDA';
+      _categoriaSelecionada = null;
+      _dataCompetencia = DateTime.now();
+      _dataVencimento = DateTime.now();
+      _dataPagamento = DateTime.now();
+      _jaPago = false;
+      _isParcelado = false;
+      _qtdParcelas = 2;
+      _intervaloDias = 30;
+      _faturasXml.clear();
+      _chaveNfe = null;
+    });
+  }
+
+  // ==========================================
+  // TELA DE SUCESSO (DIALOG)
+  // ==========================================
+  void _mostrarSucesso() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Impede de fechar clicando fora
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          contentPadding: const EdgeInsets.all(24),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.check_circle, color: Colors.green, size: 80),
+              const SizedBox(height: 16),
+              const Text(
+                'Sucesso!',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'O lançamento foi salvo com sucesso.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () {
+                  Navigator.pop(context); // Fecha o dialog
+                  _resetarFormulario(); // Reseta a tela
+                },
+                child: const Text('Novo Lançamento'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () {
+                  Navigator.pop(context); // Fecha o dialog
+                  _resetarFormulario(); // Limpa os dados em background
+                  if (widget.onVoltarDashboard != null) {
+                    widget.onVoltarDashboard!(); // Troca a aba para o Dashboard
+                  }
+                },
+                child: const Text('Ir para o Dashboard'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _importarEPreencherViaXml() async {
     final empresasCadastradas = AppState().empresasDisponiveis.value;
     if (empresasCadastradas.isEmpty) {
@@ -103,12 +193,16 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
           );
           AppState().empresaAtiva.value = empresaEncontrada;
 
+          _resetarFormulario(); // Limpa sujeiras anteriores antes de preencher
+
           setState(() {
             _tipoSelecionado = dados['tipo'];
-            _documentoController.text = dados['documento'];
+            _documentoController.text = dados['documento'] ?? '';
+            _descricaoController.text =
+                dados['descricao_sugerida'] ??
+                'NF ${dados['nome_outra_parte']}';
             _contraparteDocController.text =
-                dados['contraparte_documento'] ?? ''; // NOVO
-            _descricaoController.text = 'NF ${dados['nome_outra_parte']}';
+                dados['contraparte_documento'] ?? '';
             _valorController.text = dados['valor_total'];
             _dataCompetencia = DateTime.parse(dados['data_competencia']);
             _faturasXml = List<Map<String, dynamic>>.from(dados['parcelas']);
@@ -120,8 +214,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('XML carregado! Verifique e Salve.'),
-                backgroundColor: Colors.green,
+                content: Text('XML carregado! Verifique a Categoria e Salve.'),
+                backgroundColor: Colors.blue,
               ),
             );
           }
@@ -181,7 +275,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               'documento': _documentoController.text,
               'contraparte_documento': _contraparteDocController.text.isEmpty
                   ? null
-                  : _contraparteDocController.text, // NOVOv
+                  : _contraparteDocController.text,
               'descricao':
                   '${_descricaoController.text} (Parc ${i + 1}/${_faturasXml.length})',
               'tipo': _tipoSelecionado,
@@ -200,10 +294,12 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             lote.add({
               'empresa_id': empresa.id,
               'categoria_id': _categoriaSelecionada,
-              'documento': _documentoController.text,
+              'documento': _documentoController.text.isEmpty
+                  ? null
+                  : _documentoController.text,
               'contraparte_documento': _contraparteDocController.text.isEmpty
                   ? null
-                  : _contraparteDocController.text, // NOVOv
+                  : _contraparteDocController.text,
               'descricao':
                   '${_descricaoController.text} (Parcela ${i + 1}/$_qtdParcelas)',
               'tipo': _tipoSelecionado,
@@ -221,10 +317,12 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             'categoria_id': _tipoSelecionado == 'SALDO'
                 ? null
                 : _categoriaSelecionada,
-            'documento': _documentoController.text,
+            'documento': _documentoController.text.isEmpty
+                ? null
+                : _documentoController.text,
             'contraparte_documento': _contraparteDocController.text.isEmpty
                 ? null
-                : _contraparteDocController.text, // NOVOv
+                : _contraparteDocController.text,
             'descricao': _descricaoController.text,
             'tipo': _tipoSelecionado,
             'valor': valorTotal,
@@ -239,29 +337,15 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
 
         await _transacaoService.criarLancamentosEmLote(lote);
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Salvo com sucesso!'),
-            backgroundColor: Colors.green,
-          ),
-        );
 
-        _formKey.currentState!.reset();
-        _documentoController.clear();
-        _descricaoController.clear();
-        _valorController.clear();
-        setState(() {
-          _faturasXml.clear();
-          _chaveNfe = null;
-          _jaPago = false;
-          _isParcelado = false;
-        });
+        // MOSTRA A TELA DE SUCESSO AQUI!
+        _mostrarSucesso();
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
       } finally {
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
@@ -284,7 +368,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             OutlinedButton.icon(
               onPressed: _isLoading ? null : _importarEPreencherViaXml,
               icon: const Icon(Icons.auto_fix_high, color: Colors.purple),
-              label: const Text('Preencher Formulário via XML (NFe)'),
+              label: const Text('Preencher Formulário via XML (NFe/NFSe)'),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 side: const BorderSide(color: Colors.purple),
@@ -292,7 +376,6 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             ),
             const SizedBox(height: 24),
 
-            // AGORA COM OPÇÃO DE SALDO
             SegmentedButton<String>(
               segments: const [
                 ButtonSegment(
@@ -318,8 +401,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   _categoriaSelecionada = null;
                   if (_tipoSelecionado == 'SALDO') {
                     _isParcelado = false;
-                    _jaPago =
-                        true; // Saldos geralmente entram como já realizados
+                    _jaPago = true;
                   }
                 });
               },
@@ -328,12 +410,10 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   states,
                 ) {
                   if (states.contains(WidgetState.selected)) {
-                    if (_tipoSelecionado == 'ENTRADA') {
+                    if (_tipoSelecionado == 'ENTRADA')
                       return Colors.green.withValues(alpha: 0.2);
-                    }
-                    if (_tipoSelecionado == 'SAIDA') {
+                    if (_tipoSelecionado == 'SAIDA')
                       return Colors.red.withValues(alpha: 0.2);
-                    }
                     return Colors.blue.withValues(alpha: 0.2);
                   }
                   return Colors.transparent;
@@ -342,10 +422,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             ),
             const SizedBox(height: 16),
 
-            // OCULTA CATEGORIA SE FOR SALDO
             if (_tipoSelecionado != 'SALDO') ...[
               DropdownButtonFormField<String>(
-                initialValue: _categoriaSelecionada,
+                value: _categoriaSelecionada,
                 decoration: const InputDecoration(
                   labelText: 'Categoria (Plano de Contas)',
                   border: OutlineInputBorder(),
@@ -396,6 +475,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               ],
             ),
             const SizedBox(height: 16),
+
             TextFormField(
               controller: _contraparteDocController,
               decoration: const InputDecoration(
@@ -411,7 +491,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
                 signed: true,
-              ), // Permitir negativos
+              ),
               decoration: InputDecoration(
                 labelText: _tipoSelecionado == 'SALDO'
                     ? 'Valor (Use - para ajustes negativos)'
@@ -421,9 +501,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               ),
               validator: (value) {
                 if (value == null || value.isEmpty) return 'Informe o valor';
-                if (double.tryParse(value.replaceAll(',', '.')) == null) {
+                if (double.tryParse(value.replaceAll(',', '.')) == null)
                   return 'Valor inválido';
-                }
                 return null;
               },
             ),
@@ -462,7 +541,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
 
             if (_faturasXml.isNotEmpty && _tipoSelecionado != 'SALDO') ...[
               const Text(
-                'Faturas importadas da NFe:',
+                'Faturas importadas da NFe/NFSe:',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.purple,
@@ -557,7 +636,6 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               ],
             ],
 
-            // SE FOR SALDO, APENAS PERGUNTA A DATA EFETIVA SE ESTIVER MARCADO COMO REALIZADO
             if (_tipoSelecionado == 'SALDO') ...[
               SwitchListTile(
                 title: const Text('Ajuste já foi realizado no banco?'),

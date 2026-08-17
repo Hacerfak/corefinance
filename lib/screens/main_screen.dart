@@ -30,9 +30,15 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   // Lista de telas reorganizada
-  final List<Widget> _telas = [
+  late final List<Widget> _telas = [
     const DashboardPage(),
-    const LancamentoManualPage(),
+    LancamentoManualPage(
+      onVoltarDashboard: () {
+        setState(() {
+          _indiceAtual = 0; // Volta para o Dashboard
+        });
+      },
+    ),
     const ConciliacaoOfxPage(),
     const GestaoLancamentosPage(),
     const BalancetePage(),

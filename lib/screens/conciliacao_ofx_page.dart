@@ -50,10 +50,11 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
       );
       setState(() => _transacoesBancarias = dados);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
