@@ -12,16 +12,15 @@ class DrePage extends StatefulWidget {
 
 class _DrePageState extends State<DrePage> {
   final TransacaoService _transacaoService = TransacaoService();
-
   bool _isLoading = false;
   DateTime _mesAtual = DateTime.now();
-  bool _isRegimeCaixa = false;
 
+  bool _isRegimeCaixa = false;
   double _receitaBruta = 0;
   double _deducoes = 0;
   double _custosVariaveis = 0;
   double _despesasFixas = 0;
-  double _resultadoAnteriorAcumulado = 0; // Novo
+  double _resultadoAnteriorAcumulado = 0;
 
   @override
   void initState() {
@@ -66,12 +65,13 @@ class _DrePageState extends State<DrePage> {
 
         if (grupo == 'RECEITA_BRUTA') {
           _receitaBruta += valor;
-        } else if (grupo == 'DEDUCAO')
+        } else if (grupo == 'DEDUCAO') {
           _deducoes += valor;
-        else if (grupo == 'CUSTO_VARIAVEL')
+        } else if (grupo == 'CUSTO_VARIAVEL') {
           _custosVariaveis += valor;
-        else if (grupo == 'DESPESA_FIXA')
+        } else if (grupo == 'DESPESA_FIXA') {
           _despesasFixas += valor;
+        }
       }
       setState(() {});
     } catch (e) {
@@ -97,13 +97,20 @@ class _DrePageState extends State<DrePage> {
     final mesFormatado = DateFormat('MMMM yyyy', 'pt_BR').format(_mesAtual);
     final mesCapitalizado =
         mesFormatado[0].toUpperCase() + mesFormatado.substring(1);
+
     final empresa = AppState().empresaAtiva.value;
 
     final receitaLiquida = _receitaBruta - _deducoes;
     final margemContribuicao = receitaLiquida - _custosVariaveis;
     final resultadoLiquido = margemContribuicao - _despesasFixas;
+
     final margemLucro = _receitaBruta > 0
         ? (resultadoLiquido / _receitaBruta) * 100
+        : 0.0;
+
+    // NOVO: Cálculo do Percentual da Margem de Contribuição (sobre a Receita Líquida)
+    final percentualMargemContribuicao = receitaLiquida > 0
+        ? (margemContribuicao / receitaLiquida) * 100
         : 0.0;
 
     // Matemática final acumulada
@@ -173,7 +180,6 @@ class _DrePageState extends State<DrePage> {
             ],
           ),
         ),
-
         Expanded(
           child: empresa == null
               ? const Center(child: Text('Selecione uma empresa no topo.'))
@@ -200,7 +206,6 @@ class _DrePageState extends State<DrePage> {
                       style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
                     const SizedBox(height: 16),
-
                     Card(
                       elevation: 2,
                       child: Padding(
@@ -231,12 +236,16 @@ class _DrePageState extends State<DrePage> {
                               cor: Colors.red,
                             ),
                             const Divider(thickness: 1.5),
+
+                            // NOVO: Exibe o percentual na linha da Margem de Contribuição
                             _LinhaDre(
-                              titulo: '(=) Margem de Contribuição',
+                              titulo:
+                                  '(=) Margem de Contribuição (${percentualMargemContribuicao.toStringAsFixed(2)}%)',
                               valor: margemContribuicao,
                               cor: Colors.blue,
                               isTotal: true,
                             ),
+
                             const SizedBox(height: 16),
                             _LinhaDre(
                               titulo: '(-) Despesas Fixas',
@@ -244,7 +253,6 @@ class _DrePageState extends State<DrePage> {
                               cor: Colors.red,
                             ),
                             const Divider(thickness: 1.5),
-
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
@@ -281,10 +289,7 @@ class _DrePageState extends State<DrePage> {
                         ),
                       ),
                     ),
-
                     const SizedBox(height: 16),
-
-                    // NOVO: CARD DE VISÃO ACUMULADA
                     Card(
                       elevation: 3,
                       color: Theme.of(context).colorScheme.primary,
@@ -334,11 +339,11 @@ class _DrePageState extends State<DrePage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text(
-                                  'Margem de lucro:',
+                                  'Margem de Lucro Bruta:',
                                   style: TextStyle(color: Colors.white70),
                                 ),
                                 Text(
-                                  '${margemLucro.toStringAsFixed(0)}%',
+                                  '${margemLucro.toStringAsFixed(2)}%',
                                   style: const TextStyle(color: Colors.white),
                                 ),
                               ],
@@ -357,7 +362,7 @@ class _DrePageState extends State<DrePage> {
                                 ),
                                 Text(
                                   'R\$ ${resultadoFinalHistorico.toStringAsFixed(2)}',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 18,
@@ -382,6 +387,7 @@ class _LinhaDre extends StatelessWidget {
   final double valor;
   final Color cor;
   final bool isTotal;
+
   const _LinhaDre({
     required this.titulo,
     required this.valor,
@@ -396,13 +402,16 @@ class _LinhaDre extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            titulo,
-            style: TextStyle(
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
-              fontSize: isTotal ? 16 : 14,
+          Expanded(
+            child: Text(
+              titulo,
+              style: TextStyle(
+                fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+                fontSize: isTotal ? 16 : 14,
+              ),
             ),
           ),
+          const SizedBox(width: 8),
           Text(
             'R\$ ${valor.toStringAsFixed(2)}',
             style: TextStyle(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/transacao_service.dart';
+import '../services/parceiro_service.dart'; // <-- NOVO IMPORT
 import '../app_state.dart';
 
 class FluxoCaixaPage extends StatefulWidget {
@@ -12,9 +13,13 @@ class FluxoCaixaPage extends StatefulWidget {
 
 class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
   final TransacaoService _transacaoService = TransacaoService();
+  final ParceiroService _parceiroService = ParceiroService(); // <-- NOVO
 
   bool _isLoading = false;
   DateTime _mesAtual = DateTime.now();
+
+  List<Map<String, dynamic>> _parceiros = []; // <-- NOVO
+  String? _filtroParceiro; // <-- NOVO
 
   double _entradasPagas = 0;
   double _entradasPendentes = 0;
@@ -23,7 +28,7 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
   double _ajustesPago = 0;
   double _ajustesPendente = 0;
 
-  double _saldoAnteriorProjetado = 0; // Novo
+  double _saldoAnteriorProjetado = 0;
   Map<String, List<Map<String, dynamic>>> _lancamentosPorDia = {};
 
   @override
@@ -41,21 +46,32 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
 
   Future<void> _gerarFluxo() async {
     final empresa = AppState().empresaAtiva.value;
-    if (empresa == null) return;
+    if (empresa == null) {
+      if (mounted)
+        setState(() {
+          _parceiros = [];
+        });
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
+      final parcs = await _parceiroService.buscarParceiros(
+        empresa.id,
+      ); // <-- BUSCA PARCEIROS
+
       final dados = await _transacaoService.buscarLancamentos(
         empresaId: empresa.id,
         mesReferencia: _mesAtual,
+        parceiroDoc: _filtroParceiro, // <-- APLICA FILTRO[cite: 5]
       );
 
-      // Pega todo o histórico projetado (tudo que vencia antes deste mês)
       _saldoAnteriorProjetado = await _transacaoService
           .calcularSaldoAcumuladoAnterior(
             empresaId: empresa.id,
             mesReferencia: _mesAtual,
             campoData: 'data_vencimento',
+            parceiroDoc: _filtroParceiro, // <-- APLICA FILTRO[cite: 5]
           );
 
       _entradasPagas = 0;
@@ -97,7 +113,14 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
         }
         _lancamentosPorDia[vencimento]!.add(item);
       }
-      setState(() {});
+
+      setState(() {
+        _parceiros = parcs; // <-- ATUALIZA TELA
+        if (_filtroParceiro != null &&
+            !_parceiros.any((p) => p['documento'] == _filtroParceiro)) {
+          _filtroParceiro = null; // Limpa filtro
+        }
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -159,6 +182,47 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
           ),
         ),
 
+        // NOVO: DROPDOWN DE FILTRO[cite: 5]
+        if (_parceiros.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
+            child: DropdownButtonFormField<String>(
+              value: _filtroParceiro,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por Cliente / Fornecedor',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.filter_alt),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('Todos os Parceiros'),
+                ),
+                ..._parceiros.map(
+                  (p) => DropdownMenuItem<String>(
+                    value: p['documento'],
+                    child: Text(
+                      '${p['nome']} (${p['documento']})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (v) {
+                setState(() => _filtroParceiro = v);
+                _gerarFluxo();
+              },
+            ),
+          ),
+
         Expanded(
           child: empresa == null
               ? const Center(
@@ -168,7 +232,6 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
               ? const Center(child: CircularProgressIndicator())
               : ListView(
                   children: [
-                    // CARD DE PROJEÇÃO DE CAIXA
                     Card(
                       margin: const EdgeInsets.all(16),
                       elevation: 3,
@@ -253,7 +316,6 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
                       ),
                     ),
 
-                    // RESUMO DAS OPERAÇÕES DO MÊS
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
                       child: Column(

@@ -3,7 +3,7 @@ import 'package:flutter/services.dart'; // Necessário para o Clipboard (Copiar)
 import 'package:intl/intl.dart';
 import '../services/transacao_service.dart';
 import '../services/categoria_service.dart';
-import '../services/parceiro_service.dart'; // <-- NOVO IMPORT
+import '../services/parceiro_service.dart';
 import '../app_state.dart';
 
 class GestaoLancamentosPage extends StatefulWidget {
@@ -15,7 +15,12 @@ class GestaoLancamentosPage extends StatefulWidget {
 
 class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
   final TransacaoService _transacaoService = TransacaoService();
+  final ParceiroService _parceiroService = ParceiroService();
+
+  List<Map<String, dynamic>> _parceiros = [];
+  String? _filtroParceiro;
   List<Map<String, dynamic>> _lancamentos = [];
+
   bool _isLoading = false;
   DateTime _mesAtual = DateTime.now();
 
@@ -35,16 +40,34 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
   Future<void> _carregarDados() async {
     final empresa = AppState().empresaAtiva.value;
     if (empresa == null) {
-      if (mounted) setState(() => _lancamentos = []);
+      if (mounted) {
+        setState(() {
+          _lancamentos = [];
+          _parceiros = [];
+        });
+      }
       return;
     }
+
     setState(() => _isLoading = true);
+
     try {
+      final parcs = await _parceiroService.buscarParceiros(empresa.id);
       final dados = await _transacaoService.buscarLancamentos(
         empresaId: empresa.id,
         mesReferencia: _mesAtual,
+        parceiroDoc: _filtroParceiro, // PASSA O FILTRO
       );
-      setState(() => _lancamentos = dados);
+
+      setState(() {
+        _parceiros = parcs;
+        _lancamentos = dados;
+        // Limpa o filtro caso o parceiro não exista mais
+        if (_filtroParceiro != null &&
+            !_parceiros.any((p) => p['documento'] == _filtroParceiro)) {
+          _filtroParceiro = null;
+        }
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -147,13 +170,54 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
           ),
         ),
 
+        // NOVO: DROPDOWN DE FILTRO
+        if (_parceiros.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
+            child: DropdownButtonFormField<String>(
+              value: _filtroParceiro,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por Cliente / Fornecedor',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.filter_alt),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('Todos os Parceiros'),
+                ),
+                ..._parceiros.map(
+                  (p) => DropdownMenuItem<String>(
+                    value: p['documento'],
+                    child: Text(
+                      '${p['nome']} (${p['documento']})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (v) {
+                setState(() => _filtroParceiro = v);
+                _carregarDados(); // Recarrega os dados com o filtro ativo
+              },
+            ),
+          ),
+
         Expanded(
           child: empresa == null
               ? const Center(child: Text('Selecione uma empresa no topo.'))
               : _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _lancamentos.isEmpty
-              ? const Center(child: Text('Nenhum lançamento neste mês.'))
+              ? const Center(child: Text('Nenhum lançamento encontrado.'))
               : ListView.builder(
                   itemCount: _lancamentos.length,
                   itemBuilder: (context, index) {
@@ -370,7 +434,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
   final _formKey = GlobalKey<FormState>();
   final CategoriaService _categoriaService = CategoriaService();
   final TransacaoService _transacaoService = TransacaoService();
-  final ParceiroService _parceiroService = ParceiroService(); // NOVO
+  final ParceiroService _parceiroService = ParceiroService();
 
   late TextEditingController _descCtrl;
   late TextEditingController _valorCtrl;
@@ -379,7 +443,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
 
   String _tipoSelecionado = 'SAIDA';
   String? _categoriaSelecionada;
-  String? _parceiroSelecionadoDoc; // NOVO
+  String? _parceiroSelecionadoDoc;
 
   List<Map<String, dynamic>> _categorias = [];
   List<Map<String, dynamic>> _parceiros = [];
@@ -406,8 +470,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
 
     _tipoSelecionado = widget.lancamento['tipo'] ?? 'SAIDA';
     _categoriaSelecionada = widget.lancamento['categoria_id'];
-    _parceiroSelecionadoDoc =
-        widget.lancamento['contraparte_documento']; // Mapeia o parceiro salvo
+    _parceiroSelecionadoDoc = widget.lancamento['contraparte_documento'];
 
     _dataCompetencia = DateTime.parse(widget.lancamento['data_competencia']);
     _dataVencimento = DateTime.parse(widget.lancamento['data_vencimento']);
@@ -436,13 +499,13 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
         _parceiroSelecionadoDoc = null;
       }
 
-      // Segurança extra para a Categoria também
+      // Segurança extra para a Categoria
       if (_categoriaSelecionada != null &&
           !_categorias.any((c) => c['id'] == _categoriaSelecionada)) {
         _categoriaSelecionada = null;
       }
 
-      _isCarregando = false; // <-- LIBERA A TELA APÓS CARREGAR TUDO
+      _isCarregando = false;
     });
   }
 
@@ -466,9 +529,8 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
         'tipo': _tipoSelecionado,
         'descricao': _descCtrl.text,
         'valor': double.parse(_valorCtrl.text.replaceAll(',', '.')),
-        'documento':
-            _docCtrl.text, // Mantido para não quebrar a restrição do banco
-        'contraparte_documento': _parceiroSelecionadoDoc, // NOVO (Dropdown)
+        'documento': _docCtrl.text,
+        'contraparte_documento': _parceiroSelecionadoDoc,
         'chave_nfe': _chaveCtrl.text.isEmpty ? null : _chaveCtrl.text,
         'categoria_id': _tipoSelecionado == 'SALDO'
             ? null
@@ -489,9 +551,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
       padding: const EdgeInsets.all(24.0),
       height: MediaQuery.of(context).size.height * 0.85,
       child: _isCarregando
-          ? const Center(
-              child: CircularProgressIndicator(),
-            ) // <-- MOSTRA O LOADING
+          ? const Center(child: CircularProgressIndicator())
           : Form(
               key: _formKey,
               child: Column(
@@ -556,8 +616,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                           const SizedBox(height: 16),
                           if (_tipoSelecionado != 'SALDO') ...[
                             DropdownButtonFormField<String>(
-                              value:
-                                  _categoriaSelecionada, // Corrigido de initialValue para value
+                              value: _categoriaSelecionada,
                               decoration: const InputDecoration(
                                 labelText: 'Categoria',
                                 border: OutlineInputBorder(),
@@ -629,7 +688,6 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                           ),
                           const SizedBox(height: 16),
 
-                          // NOVO: Dropdown de Parceiros substituindo os campos de texto manuais
                           DropdownButtonFormField<String>(
                             value: _parceiroSelecionadoDoc,
                             isExpanded: true,

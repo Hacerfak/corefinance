@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/transacao_service.dart';
+import '../services/parceiro_service.dart'; // <-- NOVO IMPORT
 import '../app_state.dart';
 
 class BalancetePage extends StatefulWidget {
@@ -12,9 +13,13 @@ class BalancetePage extends StatefulWidget {
 
 class _BalancetePageState extends State<BalancetePage> {
   final TransacaoService _transacaoService = TransacaoService();
+  final ParceiroService _parceiroService = ParceiroService(); // <-- NOVO
 
   bool _isLoading = false;
   DateTime _mesAtual = DateTime.now();
+
+  List<Map<String, dynamic>> _parceiros = []; // <-- NOVO
+  String? _filtroParceiro; // <-- NOVO
 
   Map<String, List<Map<String, dynamic>>> _entradasAgrupadas = {};
   Map<String, List<Map<String, dynamic>>> _saidasAgrupadas = {};
@@ -23,7 +28,7 @@ class _BalancetePageState extends State<BalancetePage> {
   double _totalEntradas = 0;
   double _totalSaidas = 0;
   double _totalAjustes = 0;
-  double _saldoAnterior = 0; // Novo
+  double _saldoAnterior = 0;
 
   @override
   void initState() {
@@ -40,20 +45,31 @@ class _BalancetePageState extends State<BalancetePage> {
 
   Future<void> _gerarRelatorio() async {
     final empresa = AppState().empresaAtiva.value;
-    if (empresa == null) return;
+    if (empresa == null) {
+      if (mounted)
+        setState(() {
+          _parceiros = [];
+        });
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
+      final parcs = await _parceiroService.buscarParceiros(
+        empresa.id,
+      ); // <-- BUSCA PARCEIROS
+
       final dados = await _transacaoService.buscarBalancete(
         empresaId: empresa.id,
         mesReferencia: _mesAtual,
+        parceiroDoc: _filtroParceiro, // <-- APLICA FILTRO[cite: 4]
       );
 
-      // Busca o histórico acumulado pago
       _saldoAnterior = await _transacaoService.calcularSaldoAcumuladoAnterior(
         empresaId: empresa.id,
         mesReferencia: _mesAtual,
         campoData: 'data_pagamento',
+        parceiroDoc: _filtroParceiro, // <-- APLICA FILTRO[cite: 4]
       );
 
       _entradasAgrupadas = {};
@@ -88,7 +104,14 @@ class _BalancetePageState extends State<BalancetePage> {
           _saidasAgrupadas[catNome]!.add(item);
         }
       }
-      setState(() {});
+
+      setState(() {
+        _parceiros = parcs; // <-- ATUALIZA TELA
+        if (_filtroParceiro != null &&
+            !_parceiros.any((p) => p['documento'] == _filtroParceiro)) {
+          _filtroParceiro = null; // Limpa filtro se não achar parceiro
+        }
+      });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -171,7 +194,6 @@ class _BalancetePageState extends State<BalancetePage> {
     final mesCapitalizado =
         mesFormatado[0].toUpperCase() + mesFormatado.substring(1);
 
-    // Matemática Financeira
     final resultadoMes = _totalAjustes + _totalEntradas - _totalSaidas;
     final saldoAcumuladoFinal = _saldoAnterior + resultadoMes;
 
@@ -204,6 +226,47 @@ class _BalancetePageState extends State<BalancetePage> {
           ),
         ),
 
+        // NOVO: DROPDOWN DE FILTRO[cite: 4]
+        if (_parceiros.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
+            child: DropdownButtonFormField<String>(
+              value: _filtroParceiro,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Filtrar por Cliente / Fornecedor',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.filter_alt),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('Todos os Parceiros'),
+                ),
+                ..._parceiros.map(
+                  (p) => DropdownMenuItem<String>(
+                    value: p['documento'],
+                    child: Text(
+                      '${p['nome']} (${p['documento']})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (v) {
+                setState(() => _filtroParceiro = v);
+                _gerarRelatorio();
+              },
+            ),
+          ),
+
         Expanded(
           child: empresa == null
               ? const Center(child: Text('Selecione uma empresa no topo.'))
@@ -211,7 +274,6 @@ class _BalancetePageState extends State<BalancetePage> {
               ? const Center(child: CircularProgressIndicator())
               : ListView(
                   children: [
-                    // CARD DE PANORAMA GERAL
                     Card(
                       margin: const EdgeInsets.all(16),
                       elevation: 3,

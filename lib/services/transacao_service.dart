@@ -65,6 +65,7 @@ class TransacaoService {
   Future<List<Map<String, dynamic>>> buscarLancamentos({
     required String empresaId,
     required DateTime mesReferencia,
+    String? parceiroDoc,
   }) async {
     final db = await DatabaseHelper.instance.database;
     final dataInicio = DateTime(
@@ -78,22 +79,29 @@ class TransacaoService {
       0,
     ).toIso8601String().split('T')[0];
 
-    return await db.rawQuery(
-      '''
+    String where =
+        't.empresa_id = ? AND t.data_vencimento >= ? AND t.data_vencimento <= ?';
+    List<dynamic> args = [empresaId, dataInicio, dataFim];
+
+    if (parceiroDoc != null) {
+      where += ' AND t.contraparte_documento = ?';
+      args.add(parceiroDoc);
+    }
+
+    return await db.rawQuery('''
       SELECT t.*, c.nome as categoria_nome, p.nome as parceiro_nome
       FROM transacoes t
       LEFT JOIN categorias c ON t.categoria_id = c.id
       LEFT JOIN parceiros p ON t.contraparte_documento = p.documento AND t.empresa_id = p.empresa_id
-      WHERE t.empresa_id = ? AND t.data_vencimento >= ? AND t.data_vencimento <= ?
+      WHERE $where
       ORDER BY t.data_vencimento DESC
-    ''',
-      [empresaId, dataInicio, dataFim],
-    );
+    ''', args);
   }
 
   Future<List<Map<String, dynamic>>> buscarBalancete({
     required String empresaId,
     required DateTime mesReferencia,
+    String? parceiroDoc,
   }) async {
     final db = await DatabaseHelper.instance.database;
     final dataInicio = DateTime(
@@ -107,17 +115,23 @@ class TransacaoService {
       0,
     ).toIso8601String().split('T')[0];
 
-    return await db.rawQuery(
-      '''
+    String where =
+        't.empresa_id = ? AND t.data_pagamento >= ? AND t.data_pagamento <= ?';
+    List<dynamic> args = [empresaId, dataInicio, dataFim];
+
+    if (parceiroDoc != null) {
+      where += ' AND t.contraparte_documento = ?';
+      args.add(parceiroDoc);
+    }
+
+    return await db.rawQuery('''
       SELECT t.*, c.nome as categoria_nome, p.nome as parceiro_nome
       FROM transacoes t
       LEFT JOIN categorias c ON t.categoria_id = c.id
       LEFT JOIN parceiros p ON t.contraparte_documento = p.documento AND t.empresa_id = p.empresa_id
-      WHERE t.empresa_id = ? AND t.data_pagamento >= ? AND t.data_pagamento <= ?
+      WHERE $where
       ORDER BY t.data_pagamento DESC
-    ''',
-      [empresaId, dataInicio, dataFim],
-    );
+    ''', args);
   }
 
   Future<List<Map<String, dynamic>>> buscarDRE({
@@ -154,6 +168,7 @@ class TransacaoService {
     required String empresaId,
     required DateTime mesReferencia,
     required String campoData,
+    String? parceiroDoc,
   }) async {
     final db = await DatabaseHelper.instance.database;
     final dataLimite = DateTime(
@@ -161,17 +176,24 @@ class TransacaoService {
       mesReferencia.month,
       0,
     ).toIso8601String().split('T')[0];
-    final result = await db.rawQuery(
-      '''
+
+    String where =
+        'empresa_id = ? AND $campoData <= ? AND $campoData IS NOT NULL';
+    List<dynamic> args = [empresaId, dataLimite];
+
+    if (parceiroDoc != null) {
+      where += ' AND contraparte_documento = ?';
+      args.add(parceiroDoc);
+    }
+
+    final result = await db.rawQuery('''
       SELECT 
         SUM(CASE WHEN tipo = 'ENTRADA' THEN valor ELSE 0 END) as entradas,
         SUM(CASE WHEN tipo = 'SAIDA' THEN valor ELSE 0 END) as saidas,
         SUM(CASE WHEN tipo = 'SALDO' THEN valor ELSE 0 END) as saldos
       FROM transacoes
-      WHERE empresa_id = ? AND $campoData <= ? AND $campoData IS NOT NULL
-    ''',
-      [empresaId, dataLimite],
-    );
+      WHERE $where
+    ''', args);
 
     if (result.isNotEmpty) {
       final entradas = (result.first['entradas'] as num?)?.toDouble() ?? 0.0;
