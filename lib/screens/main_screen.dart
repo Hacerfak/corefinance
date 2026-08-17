@@ -3,6 +3,7 @@ import 'conciliacao_ofx_page.dart';
 import 'lancamento_manual_page.dart';
 import 'categorias_page.dart';
 import 'gerenciar_empresas_page.dart';
+import 'parceiros_page.dart';
 import 'backup_page.dart';
 import '../services/empresa_service.dart';
 import 'gestao_lancamentos_page.dart';
@@ -45,6 +46,7 @@ class _MainScreenState extends State<MainScreen> {
     const FluxoCaixaPage(),
     const DrePage(),
     const GerenciarEmpresasPage(),
+    const ParceirosPage(),
     const CategoriasPage(),
     const BackupPage(),
   ];
@@ -195,16 +197,22 @@ class _MainScreenState extends State<MainScreen> {
               onTap: () => _aoSelecionarMenu(7),
             ),
             ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text('Plano de Contas'),
+              leading: const Icon(Icons.business_center),
+              title: const Text('Clientes e Fornecedores'),
               selected: _indiceAtual == 8,
               onTap: () => _aoSelecionarMenu(8),
             ),
             ListTile(
-              leading: const Icon(Icons.cloud_sync, color: Colors.blue),
-              title: const Text('Nuvem e Backup'),
+              leading: const Icon(Icons.settings),
+              title: const Text('Plano de Contas'),
               selected: _indiceAtual == 9,
               onTap: () => _aoSelecionarMenu(9),
+            ),
+            ListTile(
+              leading: const Icon(Icons.cloud_sync, color: Colors.blue),
+              title: const Text('Nuvem e Backup'),
+              selected: _indiceAtual == 10,
+              onTap: () => _aoSelecionarMenu(10),
             ),
           ],
         ),

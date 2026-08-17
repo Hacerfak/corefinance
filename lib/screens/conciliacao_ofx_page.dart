@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import '../services/ofx_parser_service.dart';
 import '../services/conciliacao_service.dart';
 import '../services/categoria_service.dart';
+import '../services/parceiro_service.dart'; // <-- NOVO IMPORT
 import '../app_state.dart';
 
 class ConciliacaoOfxPage extends StatefulWidget {
@@ -94,18 +95,22 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
           dadosBrutos,
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Extrato importado com sucesso!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Extrato importado com sucesso!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
         _carregarDados(); // Recarrega do banco para garantir consistência
       } catch (e) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }
@@ -127,8 +132,8 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
       empresaId: empresa.id,
     );
 
-    Navigator.pop(context);
     if (!mounted) return;
+    Navigator.pop(context);
 
     showModalBottomSheet(
       context: context,
@@ -181,7 +186,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                               item['id'].toString(),
                               transacaoBanco['data'],
                             );
-                            Navigator.pop(context);
+                            if (mounted) Navigator.pop(context);
                             _carregarDados();
                           },
                         ),
@@ -201,53 +206,138 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
     final empresa = AppState().empresaAtiva.value;
     if (empresa == null) return;
 
+    // Mostra um loading rápido enquanto busca categorias e parceiros
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
     final categorias = await CategoriaService().buscarCategorias(empresa.id);
-    String? catSelecionada;
-    bool processando = false;
+    final parceiros = await ParceiroService().buscarParceiros(empresa.id);
 
     if (!mounted) return;
+    Navigator.pop(context); // Remove o loading
+
+    String? catSelecionada;
+    String? parcSelecionadoDoc;
+    bool processando = false;
+
+    // Lógica inteligente para auto-selecionar o Parceiro se o CNPJ/CPF do OFX já existir no banco
+    final docOfx = transacaoBanco['contraparte_documento'];
+    if (docOfx != null) {
+      final cleanDocOfx = docOfx.toString().replaceAll(RegExp(r'[^0-9]'), '');
+      try {
+        final parceiroEncontrado = parceiros.firstWhere(
+          (p) =>
+              p['documento'].toString().replaceAll(RegExp(r'[^0-9]'), '') ==
+              cleanDocOfx,
+        );
+        parcSelecionadoDoc = parceiroEncontrado['documento'];
+      } catch (_) {
+        // Se não encontrou, continua como null (Sem vínculo)
+      }
+    }
+
+    final TextEditingController descController = TextEditingController(
+      text: transacaoBanco['descricao'],
+    );
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setStateModal) => AlertDialog(
           title: const Text('Novo Lançamento do OFX'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Descrição: ${transacaoBanco['descricao']}'),
-              if (transacaoBanco['contraparte_documento'] != null)
-                Text(
-                  'CNPJ/CPF Relacionado: ${transacaoBanco['contraparte_documento']}',
-                ), // <-- ADICIONADO NA UIv
-              const SizedBox(height: 8),
-              Text(
-                'Data: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(transacaoBanco['data']))}',
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Valor: R\$ ${transacaoBanco['valor'].abs().toStringAsFixed(2)}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 24),
-              DropdownButtonFormField<String>(
-                decoration: const InputDecoration(
-                  labelText: 'Categoria',
-                  border: OutlineInputBorder(),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Campo de Descrição agora editável
+                TextFormField(
+                  controller: descController,
+                  decoration: const InputDecoration(
+                    labelText: 'Descrição',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: null,
                 ),
-                items: categorias
-                    .where((c) => c['tipo'] == transacaoBanco['tipo'])
-                    .map(
-                      (c) => DropdownMenuItem(
-                        value: c['id'] as String,
-                        child: Text(c['nome']),
+                const SizedBox(height: 16),
+
+                // Dropdown de Parceiros com auto-seleção
+                DropdownButtonFormField<String>(
+                  value: parcSelecionadoDoc,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Cliente / Fornecedor (Opcional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('Sem vínculo'),
+                    ),
+                    ...parceiros.map(
+                      (p) => DropdownMenuItem<String>(
+                        value: p['documento'],
+                        child: Text(
+                          '${p['nome']} (${p['documento']})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    )
-                    .toList(),
-                onChanged: (v) => setStateModal(() => catSelecionada = v),
-              ),
-            ],
+                    ),
+                  ],
+                  onChanged: (v) => setStateModal(() => parcSelecionadoDoc = v),
+                ),
+                const SizedBox(height: 16),
+
+                // Dados Fixos do Banco
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        DateFormat(
+                          'dd/MM/yyyy',
+                        ).format(DateTime.parse(transacaoBanco['data'])),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        'R\$ ${transacaoBanco['valor'].abs().toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Categoria (Obrigatório)
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(
+                    labelText: 'Categoria',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: categorias
+                      .where((c) => c['tipo'] == transacaoBanco['tipo'])
+                      .map(
+                        (c) => DropdownMenuItem(
+                          value: c['id'] as String,
+                          child: Text(c['nome']),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) => setStateModal(() => catSelecionada = v),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -255,7 +345,10 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
               child: const Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: processando || catSelecionada == null
+              onPressed:
+                  processando ||
+                      catSelecionada == null ||
+                      descController.text.isEmpty
                   ? null
                   : () async {
                       setStateModal(() => processando = true);
@@ -266,8 +359,9 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                           'categoria_id': catSelecionada,
                           'documento': 'OFX',
                           'contraparte_documento':
-                              transacaoBanco['contraparte_documento'], // <-- ADICIONADO
-                          'descricao': transacaoBanco['descricao'],
+                              parcSelecionadoDoc, // Salva o parceiro escolhido/detectado
+                          'descricao': descController
+                              .text, // Salva a descrição que o usuário editou
                           'tipo': transacaoBanco['tipo'],
                           'valor': transacaoBanco['valor'].abs(),
                           'data_competencia': transacaoBanco['data'],
@@ -275,14 +369,16 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
                           'data_pagamento': transacaoBanco['data'],
                         },
                       );
-                      Navigator.pop(ctx);
-                      _carregarDados();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Lançamento criado com sucesso!'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
+                      if (mounted) {
+                        Navigator.pop(ctx);
+                        _carregarDados();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Lançamento criado com sucesso!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
                     },
               child: processando
                   ? const SizedBox(

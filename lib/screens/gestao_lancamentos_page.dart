@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Necessário para o Clipboard (Copiar)
 import 'package:intl/intl.dart';
 import '../services/transacao_service.dart';
 import '../services/categoria_service.dart';
+import '../services/parceiro_service.dart'; // <-- NOVO IMPORT
 import '../app_state.dart';
 
 class GestaoLancamentosPage extends StatefulWidget {
@@ -13,7 +15,6 @@ class GestaoLancamentosPage extends StatefulWidget {
 
 class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
   final TransacaoService _transacaoService = TransacaoService();
-
   List<Map<String, dynamic>> _lancamentos = [];
   bool _isLoading = false;
   DateTime _mesAtual = DateTime.now();
@@ -37,7 +38,6 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
       if (mounted) setState(() => _lancamentos = []);
       return;
     }
-
     setState(() => _isLoading = true);
     try {
       final dados = await _transacaoService.buscarLancamentos(
@@ -94,7 +94,6 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
   void _abrirEdicao(Map<String, dynamic> item) {
     final empresa = AppState().empresaAtiva.value;
     if (empresa == null) return;
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -163,7 +162,6 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
                     final isSaldo = item['tipo'] == 'SALDO';
                     final isPago = item['data_pagamento'] != null;
 
-                    // Lógica de Cores e Ícones
                     Color corIconeFundo = isSaldo
                         ? Colors.blue.withValues(alpha: 0.2)
                         : (isPago
@@ -181,89 +179,166 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
                         ? Colors.blue
                         : (isEntrada ? Colors.green : Colors.red);
 
+                    // Formatação do Parceiro para o Subtítulo
+                    String nomeParceiro = item['parceiro_nome'] ?? '';
+                    String documentoParceiro =
+                        item['contraparte_documento'] ?? '';
+                    String txtParceiro = '';
+                    if (nomeParceiro.isNotEmpty) {
+                      txtParceiro = '👤 $nomeParceiro\n';
+                    } else if (documentoParceiro.isNotEmpty) {
+                      txtParceiro = '👤 Doc: $documentoParceiro\n';
+                    }
+
                     return Card(
                       margin: const EdgeInsets.symmetric(
                         horizontal: 16,
                         vertical: 6,
                       ),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: corIconeFundo,
-                          child: Icon(icone, color: corIcone),
-                        ),
-                        title: Text(
-                          item['descricao'],
-                          style: TextStyle(
-                            decoration: isPago && !isSaldo
-                                ? TextDecoration.lineThrough
-                                : null,
-                            fontWeight: FontWeight.bold,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.only(
+                            left: 16,
+                            right: 8,
                           ),
-                        ),
-                        subtitle: Text(
-                          '${isSaldo ? 'Ajuste de Caixa' : (item['categoria_nome'] ?? 'Sem Categoria')}\nVenc: ${item['data_vencimento'].toString().substring(8, 10)}/${item['data_vencimento'].toString().substring(5, 7)}${item['documento'] != null ? ' | Doc: ${item['documento']}' : ''}',
-                        ),
-                        isThreeLine: true,
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'R\$ ${item['valor'].toStringAsFixed(2)}',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: corValor,
+                          leading: CircleAvatar(
+                            backgroundColor: corIconeFundo,
+                            child: Icon(icone, color: corIcone),
+                          ),
+                          title: Text(
+                            item['descricao'],
+                            style: TextStyle(
+                              decoration: isPago && !isSaldo
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4.0),
+                            child: Text(
+                              '${isSaldo ? 'Ajuste de Caixa' : (item['categoria_nome'] ?? 'Sem Categoria')}\n'
+                              '$txtParceiro'
+                              'Venc: ${item['data_vencimento'].toString().substring(8, 10)}/${item['data_vencimento'].toString().substring(5, 7)}'
+                              '${item['documento'] != null && item['documento'].toString().isNotEmpty ? ' | Doc: ${item['documento']}' : ''}',
+                            ),
+                          ),
+                          isThreeLine: true,
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  right: 8.0,
+                                  bottom: 4.0,
+                                ),
+                                child: Text(
+                                  'R\$ ${item['valor'].toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: corValor,
+                                  ),
+                                ),
                               ),
-                            ),
-                            PopupMenuButton<String>(
-                              onSelected: (value) async {
-                                if (value == 'editar') {
-                                  _abrirEdicao(item);
-                                } else if (value == 'excluir') {
-                                  _confirmarExclusao(
-                                    item['id'],
-                                    item['descricao'],
-                                  );
-                                } else if (value == 'estornar') {
-                                  await _transacaoService.estornarPagamento(
-                                    item['id'],
-                                  );
-                                  _carregarDados();
-                                } else if (value == 'pagar') {
-                                  await _transacaoService.registrarPagamento(
-                                    item['id'],
-                                    DateTime.now().toIso8601String().split(
-                                      'T',
-                                    )[0],
-                                  );
-                                  _carregarDados();
-                                }
-                              },
-                              itemBuilder: (context) => [
-                                if (!isPago)
-                                  const PopupMenuItem(
-                                    value: 'pagar',
-                                    child: Text('Marcar como Realizado'),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (item['chave_nfe'] != null &&
+                                      item['chave_nfe'].toString().isNotEmpty)
+                                    IconButton(
+                                      constraints: const BoxConstraints(),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                      icon: const Icon(
+                                        Icons.copy,
+                                        color: Colors.grey,
+                                        size: 20,
+                                      ),
+                                      tooltip: 'Copiar Chave NFe',
+                                      onPressed: () {
+                                        Clipboard.setData(
+                                          ClipboardData(
+                                            text: item['chave_nfe'],
+                                          ),
+                                        );
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Chave NFe copiada!'),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  if (!isSaldo)
+                                    IconButton(
+                                      constraints: const BoxConstraints(),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                      ),
+                                      icon: Icon(
+                                        isPago
+                                            ? Icons.undo
+                                            : Icons.check_circle,
+                                        color: isPago
+                                            ? Colors.orange
+                                            : Colors.green,
+                                        size: 20,
+                                      ),
+                                      tooltip: isPago ? 'Estornar' : 'Pagar',
+                                      onPressed: () async {
+                                        if (isPago) {
+                                          await _transacaoService
+                                              .estornarPagamento(item['id']);
+                                        } else {
+                                          await _transacaoService
+                                              .registrarPagamento(
+                                                item['id'],
+                                                DateTime.now()
+                                                    .toIso8601String()
+                                                    .split('T')[0],
+                                              );
+                                        }
+                                        _carregarDados();
+                                      },
+                                    ),
+                                  IconButton(
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.edit,
+                                      color: Colors.blue,
+                                      size: 20,
+                                    ),
+                                    tooltip: 'Editar',
+                                    onPressed: () => _abrirEdicao(item),
                                   ),
-                                if (isPago)
-                                  const PopupMenuItem(
-                                    value: 'estornar',
-                                    child: Text('Estornar Realização'),
+                                  IconButton(
+                                    constraints: const BoxConstraints(),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.delete,
+                                      color: Colors.red,
+                                      size: 20,
+                                    ),
+                                    tooltip: 'Excluir',
+                                    onPressed: () => _confirmarExclusao(
+                                      item['id'],
+                                      item['descricao'],
+                                    ),
                                   ),
-                                const PopupMenuItem(
-                                  value: 'editar',
-                                  child: Text('Editar Todos os Dados'),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'excluir',
-                                  child: Text(
-                                    'Excluir Lançamento',
-                                    style: TextStyle(color: Colors.red),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -295,20 +370,23 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
   final _formKey = GlobalKey<FormState>();
   final CategoriaService _categoriaService = CategoriaService();
   final TransacaoService _transacaoService = TransacaoService();
+  final ParceiroService _parceiroService = ParceiroService(); // NOVO
 
   late TextEditingController _descCtrl;
-  late TextEditingController _contraparteDocCtrl;
   late TextEditingController _valorCtrl;
   late TextEditingController _docCtrl;
   late TextEditingController _chaveCtrl;
 
   String _tipoSelecionado = 'SAIDA';
   String? _categoriaSelecionada;
+  String? _parceiroSelecionadoDoc; // NOVO
+
   List<Map<String, dynamic>> _categorias = [];
+  List<Map<String, dynamic>> _parceiros = [];
+  bool _isCarregando = true;
 
   DateTime _dataCompetencia = DateTime.now();
   DateTime _dataVencimento = DateTime.now();
-
   bool _jaPago = false;
   DateTime _dataPagamento = DateTime.now();
 
@@ -322,15 +400,14 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
     _docCtrl = TextEditingController(
       text: widget.lancamento['documento'] ?? '',
     );
-    _contraparteDocCtrl = TextEditingController(
-      text: widget.lancamento['contraparte_documento'] ?? '',
-    );
     _chaveCtrl = TextEditingController(
       text: widget.lancamento['chave_nfe'] ?? '',
     );
 
     _tipoSelecionado = widget.lancamento['tipo'] ?? 'SAIDA';
     _categoriaSelecionada = widget.lancamento['categoria_id'];
+    _parceiroSelecionadoDoc =
+        widget.lancamento['contraparte_documento']; // Mapeia o parceiro salvo
 
     _dataCompetencia = DateTime.parse(widget.lancamento['data_competencia']);
     _dataVencimento = DateTime.parse(widget.lancamento['data_vencimento']);
@@ -342,13 +419,31 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
       _jaPago = false;
       _dataPagamento = DateTime.now();
     }
-
-    _carregarCategorias();
+    _carregarCategoriasEParceiros();
   }
 
-  Future<void> _carregarCategorias() async {
+  Future<void> _carregarCategoriasEParceiros() async {
     final cats = await _categoriaService.buscarCategorias(widget.empresaId);
-    setState(() => _categorias = cats);
+    final parcs = await _parceiroService.buscarParceiros(widget.empresaId);
+
+    setState(() {
+      _categorias = cats;
+      _parceiros = parcs;
+
+      // Segurança: se o documento salvo não existir mais, definimos como nulo
+      if (_parceiroSelecionadoDoc != null &&
+          !_parceiros.any((p) => p['documento'] == _parceiroSelecionadoDoc)) {
+        _parceiroSelecionadoDoc = null;
+      }
+
+      // Segurança extra para a Categoria também
+      if (_categoriaSelecionada != null &&
+          !_categorias.any((c) => c['id'] == _categoriaSelecionada)) {
+        _categoriaSelecionada = null;
+      }
+
+      _isCarregando = false; // <-- LIBERA A TELA APÓS CARREGAR TUDO
+    });
   }
 
   Future<void> _selecionarData(
@@ -371,10 +466,9 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
         'tipo': _tipoSelecionado,
         'descricao': _descCtrl.text,
         'valor': double.parse(_valorCtrl.text.replaceAll(',', '.')),
-        'documento': _docCtrl.text,
-        'contraparte_documento': _contraparteDocCtrl.text.isEmpty
-            ? null
-            : _contraparteDocCtrl.text,
+        'documento':
+            _docCtrl.text, // Mantido para não quebrar a restrição do banco
+        'contraparte_documento': _parceiroSelecionadoDoc, // NOVO (Dropdown)
         'chave_nfe': _chaveCtrl.text.isEmpty ? null : _chaveCtrl.text,
         'categoria_id': _tipoSelecionado == 'SALDO'
             ? null
@@ -394,214 +488,242 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
     return Container(
       padding: const EdgeInsets.all(24.0),
       height: MediaQuery.of(context).size.height * 0.85,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Editar Lançamento',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-
-            Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: [
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(
-                          value: 'ENTRADA',
-                          label: Text('Receita'),
-                          icon: Icon(Icons.arrow_downward),
-                        ),
-                        ButtonSegment(
-                          value: 'SAIDA',
-                          label: Text('Despesa'),
-                          icon: Icon(Icons.arrow_upward),
-                        ),
-                        ButtonSegment(
-                          value: 'SALDO',
-                          label: Text('Ajuste'),
-                          icon: Icon(Icons.account_balance_wallet),
-                        ),
-                      ],
-                      selected: {_tipoSelecionado},
-                      onSelectionChanged: (Set<String> newSelection) {
-                        setState(() {
-                          _tipoSelecionado = newSelection.first;
-                          _categoriaSelecionada = null;
-                        });
-                      },
-                      style: ButtonStyle(
-                        backgroundColor: WidgetStateProperty.resolveWith<Color>(
-                          (states) {
-                            if (states.contains(WidgetState.selected)) {
-                              if (_tipoSelecionado == 'ENTRADA') {
-                                return Colors.green.withValues(alpha: 0.2);
-                              }
-                              if (_tipoSelecionado == 'SAIDA') {
-                                return Colors.red.withValues(alpha: 0.2);
-                              }
-                              return Colors.blue.withValues(alpha: 0.2);
-                            }
-                            return Colors.transparent;
-                          },
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    if (_tipoSelecionado != 'SALDO') ...[
-                      DropdownButtonFormField<String>(
-                        initialValue: _categoriaSelecionada,
-                        decoration: const InputDecoration(
-                          labelText: 'Categoria',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.category),
-                        ),
-                        items: _categorias
-                            .where((c) => c['tipo'] == _tipoSelecionado)
-                            .map(
-                              (c) => DropdownMenuItem<String>(
-                                value: c['id'],
-                                child: Text(c['nome']),
+      child: _isCarregando
+          ? const Center(
+              child: CircularProgressIndicator(),
+            ) // <-- MOSTRA O LOADING
+          : Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Editar Lançamento',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        children: [
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment(
+                                value: 'ENTRADA',
+                                label: Text('Receita'),
+                                icon: Icon(Icons.arrow_downward),
                               ),
-                            )
-                            .toList(),
-                        onChanged: (v) =>
-                            setState(() => _categoriaSelecionada = v),
-                        validator: (value) =>
-                            value == null ? 'Selecione a categoria' : null,
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    TextFormField(
-                      controller: _descCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Descrição',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (v) => v!.isEmpty ? 'Obrigatório' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _valorCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                        signed: true,
-                      ),
-                      decoration: const InputDecoration(
-                        labelText: 'Valor (R\$)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.attach_money),
-                      ),
-                      validator: (v) => v!.isEmpty ? 'Obrigatório' : null,
-                    ),
-                    const SizedBox(height: 12),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _docCtrl,
+                              ButtonSegment(
+                                value: 'SAIDA',
+                                label: Text('Despesa'),
+                                icon: Icon(Icons.arrow_upward),
+                              ),
+                              ButtonSegment(
+                                value: 'SALDO',
+                                label: Text('Ajuste'),
+                                icon: Icon(Icons.account_balance_wallet),
+                              ),
+                            ],
+                            selected: {_tipoSelecionado},
+                            onSelectionChanged: (Set<String> newSelection) {
+                              setState(() {
+                                _tipoSelecionado = newSelection.first;
+                                _categoriaSelecionada = null;
+                              });
+                            },
+                            style: ButtonStyle(
+                              backgroundColor:
+                                  WidgetStateProperty.resolveWith<Color>((
+                                    states,
+                                  ) {
+                                    if (states.contains(WidgetState.selected)) {
+                                      if (_tipoSelecionado == 'ENTRADA') {
+                                        return Colors.green.withValues(
+                                          alpha: 0.2,
+                                        );
+                                      }
+                                      if (_tipoSelecionado == 'SAIDA') {
+                                        return Colors.red.withValues(
+                                          alpha: 0.2,
+                                        );
+                                      }
+                                      return Colors.blue.withValues(alpha: 0.2);
+                                    }
+                                    return Colors.transparent;
+                                  }),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          if (_tipoSelecionado != 'SALDO') ...[
+                            DropdownButtonFormField<String>(
+                              value:
+                                  _categoriaSelecionada, // Corrigido de initialValue para value
+                              decoration: const InputDecoration(
+                                labelText: 'Categoria',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.category),
+                              ),
+                              items: _categorias
+                                  .where((c) => c['tipo'] == _tipoSelecionado)
+                                  .map(
+                                    (c) => DropdownMenuItem<String>(
+                                      value: c['id'],
+                                      child: Text(c['nome']),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (v) =>
+                                  setState(() => _categoriaSelecionada = v),
+                              validator: (value) => value == null
+                                  ? 'Selecione a categoria'
+                                  : null,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+                          TextFormField(
+                            controller: _descCtrl,
                             decoration: const InputDecoration(
-                              labelText: 'Nº Documento / NF',
+                              labelText: 'Descrição',
                               border: OutlineInputBorder(),
                             ),
+                            validator: (v) => v!.isEmpty ? 'Obrigatório' : null,
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: TextFormField(
-                            controller: _chaveCtrl,
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _valorCtrl,
+                            keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true,
+                              signed: true,
+                            ),
                             decoration: const InputDecoration(
-                              labelText: 'Chave NFe (Opcional)',
+                              labelText: 'Valor (R\$)',
                               border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.attach_money),
                             ),
+                            validator: (v) => v!.isEmpty ? 'Obrigatório' : null,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _contraparteDocCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'CNPJ/CPF do Cliente/Fornecedor',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: _docCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Nº Documento',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: TextFormField(
+                                  controller: _chaveCtrl,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Chave NFe',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
 
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _BotaoDataEdicao(
-                            label: 'Competência (DRE)',
-                            data: _dataCompetencia,
-                            onTap: () => _selecionarData(
-                              context,
-                              _dataCompetencia,
-                              (d) => _dataCompetencia = d,
+                          // NOVO: Dropdown de Parceiros substituindo os campos de texto manuais
+                          DropdownButtonFormField<String>(
+                            value: _parceiroSelecionadoDoc,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Cliente / Fornecedor Vinculado',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.business),
                             ),
+                            items: [
+                              const DropdownMenuItem<String>(
+                                value: null,
+                                child: Text('Sem vínculo'),
+                              ),
+                              ..._parceiros.map(
+                                (p) => DropdownMenuItem<String>(
+                                  value: p['documento'],
+                                  child: Text(
+                                    '${p['nome']} (${p['documento']})',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _parceiroSelecionadoDoc = v),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _BotaoDataEdicao(
-                            label: 'Vencimento (Caixa)',
-                            data: _dataVencimento,
-                            onTap: () => _selecionarData(
-                              context,
-                              _dataVencimento,
-                              (d) => _dataVencimento = d,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 32),
 
-                    SwitchListTile(
-                      title: Text(
-                        _tipoSelecionado == 'SALDO'
-                            ? 'Ajuste já realizado?'
-                            : 'Já foi pago/recebido?',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _BotaoDataEdicao(
+                                  label: 'Competência (DRE)',
+                                  data: _dataCompetencia,
+                                  onTap: () => _selecionarData(
+                                    context,
+                                    _dataCompetencia,
+                                    (d) => _dataCompetencia = d,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _BotaoDataEdicao(
+                                  label: 'Vencimento (Caixa)',
+                                  data: _dataVencimento,
+                                  onTap: () => _selecionarData(
+                                    context,
+                                    _dataVencimento,
+                                    (d) => _dataVencimento = d,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 32),
+                          SwitchListTile(
+                            title: Text(
+                              _tipoSelecionado == 'SALDO'
+                                  ? 'Ajuste já realizado?'
+                                  : 'Já foi pago/recebido?',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            value: _jaPago,
+                            onChanged: (bool value) =>
+                                setState(() => _jaPago = value),
+                          ),
+                          if (_jaPago)
+                            _BotaoDataEdicao(
+                              label: 'Data Efetiva',
+                              data: _dataPagamento,
+                              onTap: () => _selecionarData(
+                                context,
+                                _dataPagamento,
+                                (d) => _dataPagamento = d,
+                              ),
+                            ),
+                        ],
                       ),
-                      value: _jaPago,
-                      onChanged: (bool value) =>
-                          setState(() => _jaPago = value),
                     ),
-                    if (_jaPago)
-                      _BotaoDataEdicao(
-                        label: 'Data Efetiva',
-                        data: _dataPagamento,
-                        onTap: () => _selecionarData(
-                          context,
-                          _dataPagamento,
-                          (d) => _dataPagamento = d,
-                        ),
-                      ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: _salvar,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: const Text('Salvar Alterações'),
+                  ),
+                ],
               ),
             ),
-
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _salvar,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              child: const Text('Salvar Alterações'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

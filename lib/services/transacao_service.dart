@@ -1,14 +1,44 @@
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
 import 'database_helper.dart';
 import 'backup_service.dart';
 
 class TransacaoService {
   final _uuid = const Uuid();
 
+  // Função interna para salvar/atualizar o Parceiro automaticamente
+  Future<void> _salvarParceiroSeExistir(
+    Database db,
+    String empresaId,
+    Map<String, dynamic> data,
+  ) async {
+    if (data['contraparte_documento'] != null &&
+        data['nome_parceiro'] != null &&
+        data['contraparte_documento'].toString().isNotEmpty) {
+      await db.insert(
+        'parceiros',
+        {
+          'id': _uuid.v4(),
+          'empresa_id': empresaId,
+          'documento': data['contraparte_documento'],
+          'nome': data['nome_parceiro'],
+          'created_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      ); // Se o CNPJ já existir, atualiza o nome
+    }
+  }
+
   Future<void> criarLancamento(Map<String, dynamic> data) async {
     final db = await DatabaseHelper.instance.database;
     data['id'] = _uuid.v4();
     data['created_at'] = DateTime.now().toIso8601String();
+
+    await _salvarParceiroSeExistir(db, data['empresa_id'], data);
+    data.remove(
+      'nome_parceiro',
+    ); // Remove a coluna virtual antes de inserir na tabela de transações
+
     await db.insert('transacoes', data);
     _tentarBackup();
   }
@@ -18,9 +48,14 @@ class TransacaoService {
   ) async {
     final db = await DatabaseHelper.instance.database;
     final batch = db.batch();
+
     for (var l in lancamentos) {
       l['id'] = _uuid.v4();
       l['created_at'] = DateTime.now().toIso8601String();
+
+      await _salvarParceiroSeExistir(db, l['empresa_id'], l);
+      l.remove('nome_parceiro'); // Proteção
+
       batch.insert('transacoes', l);
     }
     await batch.commit();
@@ -42,11 +77,13 @@ class TransacaoService {
       mesReferencia.month + 1,
       0,
     ).toIso8601String().split('T')[0];
+
     return await db.rawQuery(
       '''
-      SELECT t.*, c.nome as categoria_nome 
+      SELECT t.*, c.nome as categoria_nome, p.nome as parceiro_nome
       FROM transacoes t
       LEFT JOIN categorias c ON t.categoria_id = c.id
+      LEFT JOIN parceiros p ON t.contraparte_documento = p.documento AND t.empresa_id = p.empresa_id
       WHERE t.empresa_id = ? AND t.data_vencimento >= ? AND t.data_vencimento <= ?
       ORDER BY t.data_vencimento DESC
     ''',
@@ -69,11 +106,13 @@ class TransacaoService {
       mesReferencia.month + 1,
       0,
     ).toIso8601String().split('T')[0];
+
     return await db.rawQuery(
       '''
-      SELECT t.*, c.nome as categoria_nome 
+      SELECT t.*, c.nome as categoria_nome, p.nome as parceiro_nome
       FROM transacoes t
       LEFT JOIN categorias c ON t.categoria_id = c.id
+      LEFT JOIN parceiros p ON t.contraparte_documento = p.documento AND t.empresa_id = p.empresa_id
       WHERE t.empresa_id = ? AND t.data_pagamento >= ? AND t.data_pagamento <= ?
       ORDER BY t.data_pagamento DESC
     ''',
@@ -98,6 +137,7 @@ class TransacaoService {
       0,
     ).toIso8601String().split('T')[0];
     final campoData = regimeCaixa ? 'data_pagamento' : 'data_competencia';
+
     return await db.rawQuery(
       '''
       SELECT t.valor, t.tipo, c.nome as categoria_nome, c.grupo_dre 
@@ -109,24 +149,18 @@ class TransacaoService {
     );
   }
 
-  // ==========================================
-  // NOVAS FUNÇÕES PARA CÁLCULO DE ACUMULADOS
-  // ==========================================
-
-  /// Calcula o saldo bancário/caixa histórico acumulado ATÉ o mês anterior
+  // Acumulados...
   Future<double> calcularSaldoAcumuladoAnterior({
     required String empresaId,
     required DateTime mesReferencia,
     required String campoData,
   }) async {
     final db = await DatabaseHelper.instance.database;
-    // Pega o último dia do mês anterior
     final dataLimite = DateTime(
       mesReferencia.year,
       mesReferencia.month,
       0,
     ).toIso8601String().split('T')[0];
-
     final result = await db.rawQuery(
       '''
       SELECT 
@@ -148,7 +182,6 @@ class TransacaoService {
     return 0.0;
   }
 
-  /// Calcula o Resultado histórico acumulado para o DRE (Apenas Receitas e Despesas)
   Future<double> calcularResultadoAcumuladoAnteriorDRE({
     required String empresaId,
     required DateTime mesReferencia,
@@ -161,7 +194,6 @@ class TransacaoService {
       0,
     ).toIso8601String().split('T')[0];
     final campoData = regimeCaixa ? 'data_pagamento' : 'data_competencia';
-
     final result = await db.rawQuery(
       '''
       SELECT c.grupo_dre, SUM(t.valor) as total
@@ -175,25 +207,38 @@ class TransacaoService {
 
     double receitas = 0;
     double despesas = 0;
-
     for (var row in result) {
       final grupo = row['grupo_dre'] as String;
       final valor = (row['total'] as num).toDouble();
-      if (grupo == 'RECEITA_BRUTA') {
+      if (grupo == 'RECEITA_BRUTA')
         receitas += valor;
-      } else {
+      else
         despesas += valor;
-      }
     }
     return receitas - despesas;
   }
 
-  // ==========================================
-  // FUNÇÕES DE EDIÇÃO
-  // ==========================================
-
+  // Edição
   Future<void> atualizarLancamento(String id, Map<String, dynamic> data) async {
     final db = await DatabaseHelper.instance.database;
+
+    if (data.containsKey('nome_parceiro')) {
+      final existing = await db.query(
+        'transacoes',
+        columns: ['empresa_id'],
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (existing.isNotEmpty) {
+        await _salvarParceiroSeExistir(
+          db,
+          existing.first['empresa_id'] as String,
+          data,
+        );
+      }
+      data.remove('nome_parceiro');
+    }
+
     await db.update('transacoes', data, where: 'id = ?', whereArgs: [id]);
     _tentarBackup();
   }

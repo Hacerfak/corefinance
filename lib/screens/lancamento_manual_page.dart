@@ -4,12 +4,12 @@ import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/transacao_service.dart';
 import '../services/categoria_service.dart';
+import '../services/parceiro_service.dart';
 import '../services/xml_parser_service.dart';
 import '../app_state.dart';
 
 class LancamentoManualPage extends StatefulWidget {
-  final VoidCallback? onVoltarDashboard; // Callback para trocar a aba
-
+  final VoidCallback? onVoltarDashboard;
   const LancamentoManualPage({super.key, this.onVoltarDashboard});
 
   @override
@@ -20,15 +20,16 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
   final _formKey = GlobalKey<FormState>();
   final TransacaoService _transacaoService = TransacaoService();
   final CategoriaService _categoriaService = CategoriaService();
+  final ParceiroService _parceiroService = ParceiroService();
   final XmlParserService _xmlService = XmlParserService();
 
   List<Map<String, dynamic>> _categorias = [];
+  List<Map<String, dynamic>> _parceiros = [];
   String? _categoriaSelecionada;
+  String? _parceiroSelecionadoDoc;
 
   final TextEditingController _documentoController = TextEditingController();
   final TextEditingController _descricaoController = TextEditingController();
-  final TextEditingController _contraparteDocController =
-      TextEditingController();
   final TextEditingController _valorController = TextEditingController();
 
   String _tipoSelecionado = 'SAIDA';
@@ -43,6 +44,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
   int _intervaloDias = 30;
 
   List<Map<String, dynamic>> _faturasXml = [];
+  List<Map<String, dynamic>> _parcelasManuais =
+      []; // Guarda as parcelas projetadas na tela
   String? _chaveNfe;
 
   @override
@@ -62,35 +65,36 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
     final empresa = AppState().empresaAtiva.value;
     if (empresa != null) {
       final cats = await _categoriaService.buscarCategorias(empresa.id);
+      final parcs = await _parceiroService.buscarParceiros(empresa.id);
       if (mounted) {
         setState(() {
           _categorias = cats;
+          _parceiros = parcs;
           _categoriaSelecionada = null;
+          _parceiroSelecionadoDoc = null;
         });
       }
     } else {
-      if (mounted) {
+      if (mounted)
         setState(() {
           _categorias = [];
+          _parceiros = [];
           _categoriaSelecionada = null;
+          _parceiroSelecionadoDoc = null;
         });
-      }
     }
   }
 
-  // ==========================================
-  // FUNÇÃO PARA LIMPAR TODA A TELA
-  // ==========================================
   void _resetarFormulario() {
     _formKey.currentState?.reset();
     _documentoController.clear();
     _descricaoController.clear();
     _valorController.clear();
-    _contraparteDocController.clear();
 
     setState(() {
       _tipoSelecionado = 'SAIDA';
       _categoriaSelecionada = null;
+      _parceiroSelecionadoDoc = null;
       _dataCompetencia = DateTime.now();
       _dataVencimento = DateTime.now();
       _dataPagamento = DateTime.now();
@@ -99,17 +103,47 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
       _qtdParcelas = 2;
       _intervaloDias = 30;
       _faturasXml.clear();
+      _parcelasManuais.clear();
       _chaveNfe = null;
     });
   }
 
   // ==========================================
-  // TELA DE SUCESSO (DIALOG)
+  // LÓGICA INTELIGENTE DE PARCELAMENTO
   // ==========================================
+  void _gerarParcelas() {
+    if (_valorController.text.isEmpty) return;
+    double valorTotal =
+        double.tryParse(_valorController.text.replaceAll(',', '.')) ?? 0;
+
+    if (valorTotal == 0 || _qtdParcelas <= 0) {
+      setState(() => _parcelasManuais.clear());
+      return;
+    }
+
+    double valorBase = valorTotal / _qtdParcelas;
+    // Arredonda para 2 casas para evitar dízimas (ex: 100 / 3 = 33.33)
+    double valorArredondado = double.parse(valorBase.toStringAsFixed(2));
+
+    // Calcula a diferença de centavos para jogar na última parcela (ex: a última fica com 33.34)
+    double soma = valorArredondado * (_qtdParcelas - 1);
+    double valorUltima = valorTotal - soma;
+
+    _parcelasManuais.clear();
+    for (int i = 0; i < _qtdParcelas; i++) {
+      DateTime venc = _dataVencimento.add(Duration(days: _intervaloDias * i));
+      _parcelasManuais.add({
+        'vencimento': venc.toIso8601String().split('T')[0],
+        'valor': i == _qtdParcelas - 1 ? valorUltima : valorArredondado,
+      });
+    }
+    setState(() {});
+  }
+
   void _mostrarSucesso() {
     showDialog(
       context: context,
-      barrierDismissible: false, // Impede de fechar clicando fora
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
@@ -138,8 +172,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   minimumSize: const Size.fromHeight(48),
                 ),
                 onPressed: () {
-                  Navigator.pop(context); // Fecha o dialog
-                  _resetarFormulario(); // Reseta a tela
+                  Navigator.pop(context);
+                  _resetarFormulario();
                 },
                 child: const Text('Novo Lançamento'),
               ),
@@ -149,11 +183,10 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   minimumSize: const Size.fromHeight(48),
                 ),
                 onPressed: () {
-                  Navigator.pop(context); // Fecha o dialog
-                  _resetarFormulario(); // Limpa os dados em background
-                  if (widget.onVoltarDashboard != null) {
-                    widget.onVoltarDashboard!(); // Troca a aba para o Dashboard
-                  }
+                  Navigator.pop(context);
+                  _resetarFormulario();
+                  if (widget.onVoltarDashboard != null)
+                    widget.onVoltarDashboard!();
                 },
                 child: const Text('Ir para o Dashboard'),
               ),
@@ -193,16 +226,28 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
           );
           AppState().empresaAtiva.value = empresaEncontrada;
 
-          _resetarFormulario(); // Limpa sujeiras anteriores antes de preencher
+          _resetarFormulario();
+
+          if (dados['contraparte_documento'] != null &&
+              dados['nome_outra_parte'] != null) {
+            await _parceiroService.salvarParceiroDoXml(
+              empresaId: empresaEncontrada.id,
+              documento: dados['contraparte_documento'],
+              nome: dados['nome_outra_parte'],
+            );
+          }
+          final parcs = await _parceiroService.buscarParceiros(
+            empresaEncontrada.id,
+          );
 
           setState(() {
+            _parceiros = parcs;
             _tipoSelecionado = dados['tipo'];
             _documentoController.text = dados['documento'] ?? '';
             _descricaoController.text =
                 dados['descricao_sugerida'] ??
                 'NF ${dados['nome_outra_parte']}';
-            _contraparteDocController.text =
-                dados['contraparte_documento'] ?? '';
+            _parceiroSelecionadoDoc = dados['contraparte_documento'];
             _valorController.text = dados['valor_total'];
             _dataCompetencia = DateTime.parse(dados['data_competencia']);
             _faturasXml = List<Map<String, dynamic>>.from(dados['parcelas']);
@@ -211,14 +256,13 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             _jaPago = false;
           });
 
-          if (mounted) {
+          if (mounted)
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('XML carregado! Verifique a Categoria e Salve.'),
                 backgroundColor: Colors.blue,
               ),
             );
-          }
         }
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -246,15 +290,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
 
   Future<void> _salvarLancamento() async {
     final empresa = AppState().empresaAtiva.value;
-    if (empresa == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Selecione uma empresa no topo!'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
+    if (empresa == null) return;
 
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -265,6 +301,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
         final dataCompStr = _dataCompetencia.toIso8601String().split('T')[0];
         List<Map<String, dynamic>> lote = [];
 
+        // 1. Fluxo XML Faturas
         if (_faturasXml.isNotEmpty) {
           for (int i = 0; i < _faturasXml.length; i++) {
             lote.add({
@@ -273,9 +310,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   ? null
                   : _categoriaSelecionada,
               'documento': _documentoController.text,
-              'contraparte_documento': _contraparteDocController.text.isEmpty
-                  ? null
-                  : _contraparteDocController.text,
+              'contraparte_documento': _parceiroSelecionadoDoc,
               'descricao':
                   '${_descricaoController.text} (Parc ${i + 1}/${_faturasXml.length})',
               'tipo': _tipoSelecionado,
@@ -285,32 +320,41 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               'chave_nfe': _chaveNfe,
             });
           }
+          // 2. Fluxo de Parcelas Manuais
         } else if (_isParcelado && _tipoSelecionado != 'SALDO') {
-          final valorParcela = valorTotal / _qtdParcelas;
-          for (int i = 0; i < _qtdParcelas; i++) {
-            final vencimentoParcela = _dataVencimento.add(
-              Duration(days: _intervaloDias * i),
+          if (_parcelasManuais.isEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'As parcelas não foram geradas. Desative e ative o parcelamento.',
+                ),
+                backgroundColor: Colors.orange,
+              ),
             );
+            setState(() => _isLoading = false);
+            return;
+          }
+
+          for (int i = 0; i < _parcelasManuais.length; i++) {
             lote.add({
               'empresa_id': empresa.id,
               'categoria_id': _categoriaSelecionada,
               'documento': _documentoController.text.isEmpty
                   ? null
                   : _documentoController.text,
-              'contraparte_documento': _contraparteDocController.text.isEmpty
-                  ? null
-                  : _contraparteDocController.text,
+              'contraparte_documento': _parceiroSelecionadoDoc,
               'descricao':
-                  '${_descricaoController.text} (Parcela ${i + 1}/$_qtdParcelas)',
+                  '${_descricaoController.text} (Parcela ${i + 1}/${_parcelasManuais.length})',
               'tipo': _tipoSelecionado,
-              'valor': valorParcela,
+              'valor':
+                  _parcelasManuais[i]['valor'], // Pega o valor exato ajustado na tela
               'data_competencia': dataCompStr,
-              'data_vencimento': vencimentoParcela.toIso8601String().split(
-                'T',
-              )[0],
+              'data_vencimento':
+                  _parcelasManuais[i]['vencimento'], // Pega a data exata ajustada na tela
               'chave_nfe': _chaveNfe,
             });
           }
+          // 3. Fluxo Padrão (Cota Única ou Saldo)
         } else {
           lote.add({
             'empresa_id': empresa.id,
@@ -320,9 +364,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             'documento': _documentoController.text.isEmpty
                 ? null
                 : _documentoController.text,
-            'contraparte_documento': _contraparteDocController.text.isEmpty
-                ? null
-                : _contraparteDocController.text,
+            'contraparte_documento': _parceiroSelecionadoDoc,
             'descricao': _descricaoController.text,
             'tipo': _tipoSelecionado,
             'valor': valorTotal,
@@ -337,8 +379,6 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
 
         await _transacaoService.criarLancamentosEmLote(lote);
         if (!mounted) return;
-
-        // MOSTRA A TELA DE SUCESSO AQUI!
         _mostrarSucesso();
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -401,6 +441,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   _categoriaSelecionada = null;
                   if (_tipoSelecionado == 'SALDO') {
                     _isParcelado = false;
+                    _parcelasManuais.clear();
                     _jaPago = true;
                   }
                 });
@@ -476,13 +517,30 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             ),
             const SizedBox(height: 16),
 
-            TextFormField(
-              controller: _contraparteDocController,
+            DropdownButtonFormField<String>(
+              value: _parceiroSelecionadoDoc,
+              isExpanded: true,
               decoration: const InputDecoration(
-                labelText: 'CNPJ/CPF do Cliente/Fornecedor (Opcional)',
+                labelText: 'Cliente / Fornecedor Vinculado (Opcional)',
                 border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.badge),
+                prefixIcon: Icon(Icons.business),
               ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('Sem vínculo'),
+                ),
+                ..._parceiros.map(
+                  (p) => DropdownMenuItem<String>(
+                    value: p['documento'],
+                    child: Text(
+                      '${p['nome']} (${p['documento']})',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
+              onChanged: (v) => setState(() => _parceiroSelecionadoDoc = v),
             ),
             const SizedBox(height: 16),
 
@@ -499,6 +557,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 border: const OutlineInputBorder(),
                 prefixIcon: const Icon(Icons.attach_money),
               ),
+              // REMOVIDO: onChanged que forçava o _gerarParcelas()
               validator: (value) {
                 if (value == null || value.isEmpty) return 'Informe o valor';
                 if (double.tryParse(value.replaceAll(',', '.')) == null)
@@ -528,17 +587,17 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                         ? 'Data do Ajuste'
                         : 'Vencimento Base',
                     data: _dataVencimento,
-                    onTap: () => _selecionarData(
-                      context,
-                      _dataVencimento,
-                      (d) => _dataVencimento = d,
-                    ),
+                    onTap: () => _selecionarData(context, _dataVencimento, (d) {
+                      _dataVencimento = d;
+                      // REMOVIDO: recálculo automático no vencimento base
+                    }),
                   ),
                 ),
               ],
             ),
             const Divider(height: 48),
 
+            // MODO DE IMPORTAÇÃO XML
             if (_faturasXml.isNotEmpty && _tipoSelecionado != 'SALDO') ...[
               const Text(
                 'Faturas importadas da NFe/NFSe:',
@@ -576,6 +635,8 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   ),
                 ),
               ),
+
+              // MODO DE PARCELAMENTO MANUAL
             ] else if (_tipoSelecionado != 'SALDO') ...[
               SwitchListTile(
                 title: const Text(
@@ -585,10 +646,16 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 value: _isParcelado,
                 onChanged: (bool value) => setState(() {
                   _isParcelado = value;
-                  if (value) _jaPago = false;
+                  if (value) {
+                    _jaPago = false;
+                    _gerarParcelas(); // Só recalcula quando LIGA a chave
+                  } else {
+                    _parcelasManuais.clear();
+                  }
                 }),
               ),
-              if (_isParcelado)
+
+              if (_isParcelado) ...[
                 Row(
                   children: [
                     Expanded(
@@ -599,7 +666,10 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                           labelText: 'Qtd de Parcelas',
                           border: OutlineInputBorder(),
                         ),
-                        onChanged: (v) => _qtdParcelas = int.tryParse(v) ?? 2,
+                        onChanged: (v) {
+                          _qtdParcelas = int.tryParse(v) ?? 2;
+                          _gerarParcelas();
+                        }, // Recalcula se mudar a Quantidade
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -611,12 +681,102 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                           labelText: 'Intervalo (Dias)',
                           border: OutlineInputBorder(),
                         ),
-                        onChanged: (v) =>
-                            _intervaloDias = int.tryParse(v) ?? 30,
+                        onChanged: (v) {
+                          _intervaloDias = int.tryParse(v) ?? 30;
+                          _gerarParcelas();
+                        }, // Recalcula se mudar o Intervalo
                       ),
                     ),
                   ],
                 ),
+
+                if (_parcelasManuais.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Ajuste Fino das Parcelas:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blueGrey,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Card(
+                    elevation: 0,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        children: _parcelasManuais.asMap().entries.map((entry) {
+                          int i = entry.key;
+                          Map<String, dynamic> p = entry.value;
+                          DateTime dataParc = DateTime.parse(p['vencimento']);
+
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 6.0),
+                            child: Row(
+                              children: [
+                                Text(
+                                  '${i + 1}ª',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  flex: 2,
+                                  child: _BotaoData(
+                                    label: 'Vencimento',
+                                    data: dataParc,
+                                    onTap: () => _selecionarData(
+                                      context,
+                                      dataParc,
+                                      (d) {
+                                        setState(
+                                          () =>
+                                              _parcelasManuais[i]['vencimento'] =
+                                                  d.toIso8601String().split(
+                                                    'T',
+                                                  )[0],
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    initialValue: p['valor'].toStringAsFixed(2),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Valor (R\$)',
+                                      border: OutlineInputBorder(),
+                                      isDense: true,
+                                    ),
+                                    onChanged: (v) =>
+                                        _parcelasManuais[i]['valor'] =
+                                            double.tryParse(
+                                              v.replaceAll(',', '.'),
+                                            ) ??
+                                            0.0,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+
               if (!_isParcelado) ...[
                 SwitchListTile(
                   title: const Text('Lançamento já foi pago/recebido?'),
@@ -694,7 +854,7 @@ class _BotaoData extends StatelessWidget {
           border: const OutlineInputBorder(),
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 12,
-            vertical: 8,
+            vertical: 12,
           ),
         ),
         child: Row(

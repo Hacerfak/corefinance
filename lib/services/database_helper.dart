@@ -42,9 +42,9 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2, // <-- ATUALIZADO PARA VERSÃO 2
+      version: 3, // <-- ATUALIZADO PARA VERSÃO 3
       onCreate: _createDB,
-      onUpgrade: _onUpgrade, // <-- ADICIONADO GESTOR DE ATUALIZAÇÃO
+      onUpgrade: _onUpgrade,
       onConfigure: _onConfigure,
     );
   }
@@ -53,13 +53,24 @@ class DatabaseHelper {
     await db.execute('PRAGMA foreign_keys = ON');
   }
 
-  // Se o aplicativo já estiver instalado, ele roda isso sem apagar dados
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute(
         'ALTER TABLE transacoes ADD COLUMN contraparte_documento TEXT',
       );
-      // A tabela transacoes_bancarias ganha a coluna no IF NOT EXISTS acima ou no CREATE se for instalação nova
+    }
+    // NOVO: Criação da tabela de parceiros na atualização
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS parceiros (
+          id TEXT PRIMARY KEY,
+          empresa_id TEXT,
+          documento TEXT,
+          nome TEXT,
+          created_at TEXT,
+          UNIQUE(empresa_id, documento)
+        )
+      ''');
     }
   }
 
@@ -85,6 +96,16 @@ class DatabaseHelper {
         tipo $textType,
         created_at TEXT,
         FOREIGN KEY (empresa_id) REFERENCES empresas (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE parceiros (
+        id $idType,
+        empresa_id TEXT,
+        documento TEXT,
+        nome TEXT,
+        created_at TEXT,
+        UNIQUE(empresa_id, documento)
       )
     ''');
     await db.execute('''
