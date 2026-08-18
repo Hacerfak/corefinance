@@ -266,7 +266,7 @@ class _ConciliacaoOfxPageState extends State<ConciliacaoOfxPage> {
 
                 // Dropdown de Parceiros com auto-seleção
                 DropdownButtonFormField<String>(
-                  value: parcSelecionadoDoc,
+                  initialValue: parcSelecionadoDoc,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Cliente / Fornecedor (Opcional)',

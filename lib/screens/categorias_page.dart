@@ -11,7 +11,6 @@ class CategoriasPage extends StatefulWidget {
 
 class _CategoriasPageState extends State<CategoriasPage> {
   final CategoriaService _categoriaService = CategoriaService();
-
   List<Map<String, dynamic>> _categorias = [];
   bool _isLoading = false;
 
@@ -34,7 +33,6 @@ class _CategoriasPageState extends State<CategoriasPage> {
       if (mounted) setState(() => _categorias = []);
       return;
     }
-
     setState(() => _isLoading = true);
     try {
       final dados = await _categoriaService.buscarCategorias(empresa.id);
@@ -58,12 +56,28 @@ class _CategoriasPageState extends State<CategoriasPage> {
 
     final nomeController = TextEditingController(text: categoria?['nome']);
     String tipoSelecionado = categoria?['tipo'] ?? 'SAIDA';
-    String grupoSelecionado = categoria?['grupo_dre'] ?? 'DESPESA_FIXA';
+
+    // Fallback de retrocompatibilidade para abrir edição de categorias antigas
+    String grupoSelecionado =
+        categoria?['grupo_dre'] ?? 'DESPESA_ADMINISTRATIVA';
+    if (grupoSelecionado == 'DEDUCAO') grupoSelecionado = 'DEDUCAO_RECEITA';
+    if (grupoSelecionado == 'CUSTO_VARIAVEL') {
+      grupoSelecionado = 'CUSTO_OPERACIONAL';
+    }
+    if (grupoSelecionado == 'DESPESA_FIXA') {
+      grupoSelecionado = 'DESPESA_ADMINISTRATIVA';
+    }
+
     final gruposDisponiveis = {
-      'RECEITA_BRUTA': 'Receita Bruta',
-      'DEDUCAO': 'Deduções/Impostos',
-      'CUSTO_VARIAVEL': 'Custos Variáveis',
-      'DESPESA_FIXA': 'Despesas Fixas',
+      'RECEITA_BRUTA': 'Receita Bruta de Serviços',
+      'DEDUCAO_RECEITA': 'Deduções da Receita Bruta',
+      'CUSTO_OPERACIONAL': 'Custo dos Serv. Prestados (CSP)',
+      'DESPESA_COMERCIAL': 'Despesas Comerciais e Vendas',
+      'DESPESA_ADMINISTRATIVA': 'Despesas Admin (Backoffice)',
+      'DEPRECIACAO': 'Depreciação e Amortização',
+      'RECEITA_FINANCEIRA': 'Receitas Financeiras',
+      'DESPESA_FINANCEIRA': 'Despesas Financeiras',
+      'IMPOSTO_LUCRO': 'Provisão de Impostos (IRPJ/CSLL)',
     };
 
     showDialog(
@@ -79,7 +93,9 @@ class _CategoriasPageState extends State<CategoriasPage> {
               children: [
                 DropdownButtonFormField<String>(
                   initialValue: tipoSelecionado,
-                  decoration: const InputDecoration(labelText: 'Tipo'),
+                  decoration: const InputDecoration(
+                    labelText: 'Tipo (Entrada/Saída)',
+                  ),
                   items: const [
                     DropdownMenuItem(
                       value: 'ENTRADA',
@@ -95,12 +111,15 @@ class _CategoriasPageState extends State<CategoriasPage> {
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   initialValue: grupoSelecionado,
-                  decoration: const InputDecoration(labelText: 'Grupo DRE'),
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Classificação no DRE',
+                  ),
                   items: gruposDisponiveis.entries
                       .map(
                         (e) => DropdownMenuItem(
                           value: e.key,
-                          child: Text(e.value),
+                          child: Text(e.value, overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -152,13 +171,26 @@ class _CategoriasPageState extends State<CategoriasPage> {
   String _formatarGrupoDre(String grupo) {
     switch (grupo) {
       case 'RECEITA_BRUTA':
-        return 'Receita Bruta';
+        return 'Receita Bruta de Serviços';
       case 'DEDUCAO':
-        return 'Deduções/Impostos';
+      case 'DEDUCAO_RECEITA':
+        return 'Deduções da Receita Bruta';
       case 'CUSTO_VARIAVEL':
-        return 'Custos Variáveis';
+      case 'CUSTO_OPERACIONAL':
+        return 'Custo dos Serv. Prestados (CSP)';
+      case 'DESPESA_COMERCIAL':
+        return 'Despesas Comerciais e Vendas';
       case 'DESPESA_FIXA':
-        return 'Despesas Fixas';
+      case 'DESPESA_ADMINISTRATIVA':
+        return 'Despesas Admin (Backoffice)';
+      case 'DEPRECIACAO':
+        return 'Depreciação e Amortização';
+      case 'RECEITA_FINANCEIRA':
+        return 'Receitas Financeiras';
+      case 'DESPESA_FINANCEIRA':
+        return 'Despesas Financeiras';
+      case 'IMPOSTO_LUCRO':
+        return 'Provisão de Impostos (IRPJ/CSLL)';
       default:
         return grupo;
     }
@@ -194,6 +226,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
                 itemBuilder: (context, index) {
                   final cat = _categorias[index];
                   final bool isEntrada = cat['tipo'] == 'ENTRADA';
+
                   return Card(
                     margin: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -209,7 +242,7 @@ class _CategoriasPageState extends State<CategoriasPage> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
-                        'Grupo DRE: ${_formatarGrupoDre(cat['grupo_dre'])}',
+                        'DRE: ${_formatarGrupoDre(cat['grupo_dre'])}',
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,

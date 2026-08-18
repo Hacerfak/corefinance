@@ -44,7 +44,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
   int _intervaloDias = 30;
 
   List<Map<String, dynamic>> _faturasXml = [];
-  List<Map<String, dynamic>> _parcelasManuais =
+  final List<Map<String, dynamic>> _parcelasManuais =
       []; // Guarda as parcelas projetadas na tela
   String? _chaveNfe;
 
@@ -75,13 +75,14 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
         });
       }
     } else {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _categorias = [];
           _parceiros = [];
           _categoriaSelecionada = null;
           _parceiroSelecionadoDoc = null;
         });
+      }
     }
   }
 
@@ -185,8 +186,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                 onPressed: () {
                   Navigator.pop(context);
                   _resetarFormulario();
-                  if (widget.onVoltarDashboard != null)
+                  if (widget.onVoltarDashboard != null) {
                     widget.onVoltarDashboard!();
+                  }
                 },
                 child: const Text('Ir para o Dashboard'),
               ),
@@ -256,13 +258,14 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             _jaPago = false;
           });
 
-          if (mounted)
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('XML carregado! Verifique a Categoria e Salve.'),
                 backgroundColor: Colors.blue,
               ),
             );
+          }
         }
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -451,10 +454,12 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
                   states,
                 ) {
                   if (states.contains(WidgetState.selected)) {
-                    if (_tipoSelecionado == 'ENTRADA')
+                    if (_tipoSelecionado == 'ENTRADA') {
                       return Colors.green.withValues(alpha: 0.2);
-                    if (_tipoSelecionado == 'SAIDA')
+                    }
+                    if (_tipoSelecionado == 'SAIDA') {
                       return Colors.red.withValues(alpha: 0.2);
+                    }
                     return Colors.blue.withValues(alpha: 0.2);
                   }
                   return Colors.transparent;
@@ -465,7 +470,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
 
             if (_tipoSelecionado != 'SALDO') ...[
               DropdownButtonFormField<String>(
-                value: _categoriaSelecionada,
+                initialValue: _categoriaSelecionada,
                 decoration: const InputDecoration(
                   labelText: 'Categoria (Plano de Contas)',
                   border: OutlineInputBorder(),
@@ -518,7 +523,7 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
             const SizedBox(height: 16),
 
             DropdownButtonFormField<String>(
-              value: _parceiroSelecionadoDoc,
+              initialValue: _parceiroSelecionadoDoc,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Cliente / Fornecedor Vinculado (Opcional)',
@@ -560,8 +565,9 @@ class _LancamentoManualPageState extends State<LancamentoManualPage> {
               // REMOVIDO: onChanged que forçava o _gerarParcelas()
               validator: (value) {
                 if (value == null || value.isEmpty) return 'Informe o valor';
-                if (double.tryParse(value.replaceAll(',', '.')) == null)
+                if (double.tryParse(value.replaceAll(',', '.')) == null) {
                   return 'Valor inválido';
+                }
                 return null;
               },
             ),

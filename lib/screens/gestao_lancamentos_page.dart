@@ -178,7 +178,7 @@ class _GestaoLancamentosPageState extends State<GestaoLancamentosPage> {
               vertical: 8.0,
             ),
             child: DropdownButtonFormField<String>(
-              value: _filtroParceiro,
+              initialValue: _filtroParceiro,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Filtrar por Cliente / Fornecedor',
@@ -616,7 +616,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                           const SizedBox(height: 16),
                           if (_tipoSelecionado != 'SALDO') ...[
                             DropdownButtonFormField<String>(
-                              value: _categoriaSelecionada,
+                              initialValue: _categoriaSelecionada,
                               decoration: const InputDecoration(
                                 labelText: 'Categoria',
                                 border: OutlineInputBorder(),
@@ -689,7 +689,7 @@ class _FormularioEdicaoCompletaState extends State<_FormularioEdicaoCompleta> {
                           const SizedBox(height: 16),
 
                           DropdownButtonFormField<String>(
-                            value: _parceiroSelecionadoDoc,
+                            initialValue: _parceiroSelecionadoDoc,
                             isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Cliente / Fornecedor Vinculado',

@@ -6,7 +6,6 @@ import 'backup_service.dart';
 class TransacaoService {
   final _uuid = const Uuid();
 
-  // Função interna para salvar/atualizar o Parceiro automaticamente
   Future<void> _salvarParceiroSeExistir(
     Database db,
     String empresaId,
@@ -15,17 +14,13 @@ class TransacaoService {
     if (data['contraparte_documento'] != null &&
         data['nome_parceiro'] != null &&
         data['contraparte_documento'].toString().isNotEmpty) {
-      await db.insert(
-        'parceiros',
-        {
-          'id': _uuid.v4(),
-          'empresa_id': empresaId,
-          'documento': data['contraparte_documento'],
-          'nome': data['nome_parceiro'],
-          'created_at': DateTime.now().toIso8601String(),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      ); // Se o CNPJ já existir, atualiza o nome
+      await db.insert('parceiros', {
+        'id': _uuid.v4(),
+        'empresa_id': empresaId,
+        'documento': data['contraparte_documento'],
+        'nome': data['nome_parceiro'],
+        'created_at': DateTime.now().toIso8601String(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 
@@ -33,12 +28,8 @@ class TransacaoService {
     final db = await DatabaseHelper.instance.database;
     data['id'] = _uuid.v4();
     data['created_at'] = DateTime.now().toIso8601String();
-
     await _salvarParceiroSeExistir(db, data['empresa_id'], data);
-    data.remove(
-      'nome_parceiro',
-    ); // Remove a coluna virtual antes de inserir na tabela de transações
-
+    data.remove('nome_parceiro');
     await db.insert('transacoes', data);
     _tentarBackup();
   }
@@ -48,14 +39,11 @@ class TransacaoService {
   ) async {
     final db = await DatabaseHelper.instance.database;
     final batch = db.batch();
-
     for (var l in lancamentos) {
       l['id'] = _uuid.v4();
       l['created_at'] = DateTime.now().toIso8601String();
-
       await _salvarParceiroSeExistir(db, l['empresa_id'], l);
-      l.remove('nome_parceiro'); // Proteção
-
+      l.remove('nome_parceiro');
       batch.insert('transacoes', l);
     }
     await batch.commit();
@@ -78,16 +66,13 @@ class TransacaoService {
       mesReferencia.month + 1,
       0,
     ).toIso8601String().split('T')[0];
-
     String where =
         't.empresa_id = ? AND t.data_vencimento >= ? AND t.data_vencimento <= ?';
     List<dynamic> args = [empresaId, dataInicio, dataFim];
-
     if (parceiroDoc != null) {
       where += ' AND t.contraparte_documento = ?';
       args.add(parceiroDoc);
     }
-
     return await db.rawQuery('''
       SELECT t.*, c.nome as categoria_nome, p.nome as parceiro_nome
       FROM transacoes t
@@ -114,16 +99,13 @@ class TransacaoService {
       mesReferencia.month + 1,
       0,
     ).toIso8601String().split('T')[0];
-
     String where =
         't.empresa_id = ? AND t.data_pagamento >= ? AND t.data_pagamento <= ?';
     List<dynamic> args = [empresaId, dataInicio, dataFim];
-
     if (parceiroDoc != null) {
       where += ' AND t.contraparte_documento = ?';
       args.add(parceiroDoc);
     }
-
     return await db.rawQuery('''
       SELECT t.*, c.nome as categoria_nome, p.nome as parceiro_nome
       FROM transacoes t
@@ -151,7 +133,6 @@ class TransacaoService {
       0,
     ).toIso8601String().split('T')[0];
     final campoData = regimeCaixa ? 'data_pagamento' : 'data_competencia';
-
     return await db.rawQuery(
       '''
       SELECT t.valor, t.tipo, c.nome as categoria_nome, c.grupo_dre 
@@ -163,7 +144,6 @@ class TransacaoService {
     );
   }
 
-  // Acumulados...
   Future<double> calcularSaldoAcumuladoAnterior({
     required String empresaId,
     required DateTime mesReferencia,
@@ -176,16 +156,13 @@ class TransacaoService {
       mesReferencia.month,
       0,
     ).toIso8601String().split('T')[0];
-
     String where =
         'empresa_id = ? AND $campoData <= ? AND $campoData IS NOT NULL';
     List<dynamic> args = [empresaId, dataLimite];
-
     if (parceiroDoc != null) {
       where += ' AND contraparte_documento = ?';
       args.add(parceiroDoc);
     }
-
     final result = await db.rawQuery('''
       SELECT 
         SUM(CASE WHEN tipo = 'ENTRADA' THEN valor ELSE 0 END) as entradas,
@@ -194,7 +171,6 @@ class TransacaoService {
       FROM transacoes
       WHERE $where
     ''', args);
-
     if (result.isNotEmpty) {
       final entradas = (result.first['entradas'] as num?)?.toDouble() ?? 0.0;
       final saidas = (result.first['saidas'] as num?)?.toDouble() ?? 0.0;
@@ -232,18 +208,19 @@ class TransacaoService {
     for (var row in result) {
       final grupo = row['grupo_dre'] as String;
       final valor = (row['total'] as num).toDouble();
-      if (grupo == 'RECEITA_BRUTA')
+
+      // Retrocompatibilidade e novos grupos financeiros
+      if (grupo == 'RECEITA_BRUTA' || grupo == 'RECEITA_FINANCEIRA') {
         receitas += valor;
-      else
+      } else {
         despesas += valor;
+      }
     }
     return receitas - despesas;
   }
 
-  // Edição
   Future<void> atualizarLancamento(String id, Map<String, dynamic> data) async {
     final db = await DatabaseHelper.instance.database;
-
     if (data.containsKey('nome_parceiro')) {
       final existing = await db.query(
         'transacoes',
@@ -260,7 +237,6 @@ class TransacaoService {
       }
       data.remove('nome_parceiro');
     }
-
     await db.update('transacoes', data, where: 'id = ?', whereArgs: [id]);
     _tentarBackup();
   }

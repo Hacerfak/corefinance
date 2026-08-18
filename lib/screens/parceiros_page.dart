@@ -38,10 +38,11 @@ class _ParceirosPageState extends State<ParceirosPage> {
       final dados = await _parceiroService.buscarParceiros(empresa.id);
       setState(() => _parceiros = dados);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -83,8 +84,9 @@ class _ParceirosPageState extends State<ParceirosPage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              if (nomeController.text.isEmpty || docController.text.isEmpty)
+              if (nomeController.text.isEmpty || docController.text.isEmpty) {
                 return;
+              }
               await _parceiroService.salvarParceiro(
                 id: parceiro?['id'],
                 empresaId: empresa.id,

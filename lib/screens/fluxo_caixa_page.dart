@@ -47,10 +47,11 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
   Future<void> _gerarFluxo() async {
     final empresa = AppState().empresaAtiva.value;
     if (empresa == null) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _parceiros = [];
         });
+      }
       return;
     }
 
@@ -190,7 +191,7 @@ class _FluxoCaixaPageState extends State<FluxoCaixaPage> {
               vertical: 8.0,
             ),
             child: DropdownButtonFormField<String>(
-              value: _filtroParceiro,
+              initialValue: _filtroParceiro,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Filtrar por Cliente / Fornecedor',

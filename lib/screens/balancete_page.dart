@@ -46,10 +46,11 @@ class _BalancetePageState extends State<BalancetePage> {
   Future<void> _gerarRelatorio() async {
     final empresa = AppState().empresaAtiva.value;
     if (empresa == null) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _parceiros = [];
         });
+      }
       return;
     }
 
@@ -234,7 +235,7 @@ class _BalancetePageState extends State<BalancetePage> {
               vertical: 8.0,
             ),
             child: DropdownButtonFormField<String>(
-              value: _filtroParceiro,
+              initialValue: _filtroParceiro,
               isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Filtrar por Cliente / Fornecedor',
